@@ -66,8 +66,13 @@ class LZW(object):
 			outstream.write(t[curr_code])
 			la_code = self._Decode(look_ahead)
 			# In each iteration add the current word with the first letter
-			# of the lookahead word
-			t.Add(t[curr_code] + t[la_code][0])
+			# of the lookahead word. If the lookahead word is unknown then
+			# its first letter must be the same as the current first letter (!)
+			if la_code in t:
+				new_word = t[curr_code] + t[la_code][0]
+			else:
+				new_word = t[curr_code] + t[curr_code][0]
+			t.Add(new_word)
 			# Prepare for next iteration
 			current = look_ahead
 			curr_code = la_code
