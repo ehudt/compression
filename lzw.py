@@ -57,24 +57,20 @@ class LZW(object):
 
 	def _Decompress(self, instream, outstream):
 		t = DecodingTable()
-		current = instream.read(PACK_SIZE)
-		if len(current) < PACK_SIZE:
-			return
-		curr_code = self._Decode(current)
-		look_ahead = instream.read(PACK_SIZE)
-		while len(look_ahead) == PACK_SIZE:
+		prev_token = None
+		buff = instream.read(PACK_SIZE)
+		while len(buff) == PACK_SIZE:
+			token = self._Decode(buff)
 			# Output the current token - it should already be in the table
-			outstream.write(t[curr_code])
-			la_code = self._Decode(look_ahead)
-			if 0 <= la_code <= 255:
-				t.Add(t[curr_code] + chr(la_code))
-				print t[curr_code] + chr(la_code)
-			# Prepare for next iteration
-			current = look_ahead
-			curr_code = la_code
-			look_ahead = instream.read(PACK_SIZE)
-		if len(current) == PACK_SIZE:
-			outstream.write(t[self._Decode(current)])
+			outstream.write(t[token])
+			# If the token is small and we have a previous one, 
+			# then we have to insert a new code.
+			if prev_token is not None and 0 <= token <= 255:
+				t.Add(t[prev_token] + t[token])
+				prev_token = None
+			else:
+				prev_token = token
+			buff = instream.read(PACK_SIZE)
 
 	def _Encode(self, value):
 		return struct.pack(PACK_PATTERN, value)
