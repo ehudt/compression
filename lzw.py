@@ -30,15 +30,14 @@ class LZW(object):
 		while c:
 			word += c
 			if word not in t:
-				# emit the longest prefix of the word in the table
 				prefix = word[:-1]
-				outstream.write(self._Encode(t[prefix]))
-				# emit the new suffix
 				suffix = word[-1]
-				outstream.write(self._Encode(t[suffix]))
+				# emit the longest prefix of the word in the table
+				outstream.write(self._Encode(t[prefix]))
 				# add new word to table
 				t.Add(word)
-				word = ''
+				# continue with the suffix
+				word = suffix
 			c = instream.read(1)
 		if word:
 			outstream.write(self._Encode(t[word]))
@@ -57,20 +56,24 @@ class LZW(object):
 
 	def _Decompress(self, instream, outstream):
 		t = DecodingTable()
-		prev_token = None
-		buff = instream.read(PACK_SIZE)
-		while len(buff) == PACK_SIZE:
-			token = self._Decode(buff)
+		current = instream.read(PACK_SIZE)
+		if len(current) < PACK_SIZE:
+			return
+		curr_code = self._Decode(current)
+		look_ahead = instream.read(PACK_SIZE)
+		while len(look_ahead) == PACK_SIZE:
 			# Output the current token - it should already be in the table
-			outstream.write(t[token])
-			# If the token is small and we have a previous one, 
-			# then we have to insert a new code.
-			if prev_token is not None and 0 <= token <= 255:
-				t.Add(t[prev_token] + t[token])
-				prev_token = None
-			else:
-				prev_token = token
-			buff = instream.read(PACK_SIZE)
+			outstream.write(t[curr_code])
+			la_code = self._Decode(look_ahead)
+			# In each iteration add the current word with the first letter
+			# of the lookahead word
+			t.Add(t[curr_code] + t[la_code][0])
+			# Prepare for next iteration
+			current = look_ahead
+			curr_code = la_code
+			look_ahead = instream.read(PACK_SIZE)
+		if len(current) == PACK_SIZE:
+			outstream.write(t[self._Decode(current)])
 
 	def _Encode(self, value):
 		return struct.pack(PACK_PATTERN, value)
