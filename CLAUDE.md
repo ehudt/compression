@@ -49,8 +49,8 @@ src/
   huffman.rs             Canonical Huffman coding for literals
   encoder/
     mod.rs               re-exports MatchConfig
-    block.rs             Compressed block encoder (Huffman literals, 0 sequences)
-    lz77.rs              Hash-chain LZ77 match finder
+    block.rs             Compressed block encoder (Huffman literals + FSE sequences)
+    lz77.rs              Hash-chain LZ77 parser / match finder
   decoder/
     mod.rs               decode_block() dispatcher
     literals.rs          Literal section decoder (raw / RLE / Huffman)
@@ -136,7 +136,7 @@ If you add a new sf value, update **both** `encoder/block.rs` and
 
 ---
 
-## FSE (Finite State Entropy) — what it is and what is missing
+## FSE (Finite State Entropy) — what it is and how this repo uses it
 
 ### What FSE is
 
@@ -175,60 +175,48 @@ which the decoder reads forward (after the sentinel bit).
   per-sequence state advance, extra-bit decoding, repeat-offset handling,
   and sequence execution.
 
-### What is missing
+### Current encoder behavior
 
-**The FSE sequence *encoder*.**  `encoder/block.rs:encode_block` currently
-emits 0 sequences and puts the entire block into the literals section.  The
-LZ77 events from `encoder/lz77.rs:parse()` are computed but discarded.
+`encoder/block.rs:encode_block` now emits real sequences:
 
-To implement the sequence encoder you need to:
+1. `encoder/lz77.rs:parse(data, cfg)` produces literal runs and matches.
+2. `collect_sequences()` keeps literal bytes separate from sequence commands.
+3. Lengths/offsets are mapped to `(ll_code, ml_code, of_code)` plus their
+   extra bits using the tables in `tables/sequences.rs`.
+4. `encode_sequences()` writes:
+   - sequence count
+   - mode byte `0x00` (predefined LL/OF/ML tables)
+   - initial LL / OF / ML states
+   - per-sequence offset extra bits, match-length extra bits, literal-length
+     extra bits, then FSE state transitions for every sequence except the last
+5. `BitWriter::finish()` reverses the buffered bytes to match the decoder's
+   backwards bitstream convention.
 
-1. Call `encoder/lz77.rs:parse(data, cfg)` to get `Vec<Event>`.
-2. Collect `(lit_len, match_len, offset)` triples and the literal bytes.
-3. Map each triple to `(ll_code, ll_extra, ml_code, ml_extra, of_code,
-   of_extra)` using the lookup tables in `tables/sequences.rs`.
-4. Build FSE encode tables from the predefined norms (already in
-   `build_encode_table` in `fse.rs`).
-5. Encode the bitstream **in reverse** (last sequence first):
-   - For each sequence (reverse order):
-     a. Write `ll_extra_bits` bits of `ll_extra`
-     b. Write `ml_extra_bits` bits of `ml_extra`
-     c. Write `of_code` bits of `of_extra`
-     d. If not the last sequence to encode (i.e., not the first in the
-        original order): advance encode states for LL, ML, OF and write
-        the state-advance bits.
-   - Write initial OF, ML, LL states (each `accuracy_log` bits).
-6. `BitWriter::finish()` reverses the bytes, producing the correct stream.
-7. Write mode byte `0x00` (all predefined tables) and sequence count prefix.
+The encoder derives a valid state path by inverting the predefined decode
+tables (`build_state_path()` + `inverse_transition()`) instead of maintaining a
+separate FSE encoder-table implementation.
 
-The `decoder/sequences.rs:decode_sequence_bitstream` reads bits in this
-exact order and can serve as the ground-truth spec for the encoder.
+Two important current constraints:
 
-**Key pitfall:** `build_encode_table` returns entries with `delta_find_state`.
-The correct encode transition is:
-```
-nb = accuracy_log - floor(log2(n))          // n = norm count for symbol
-if state >= find_state_min:
-    nb -= 1                                  // sometimes one fewer bit
-output (state - find_state_min) bits
-new_encoder_state = delta_find_state + (state >> nb) + find_state_min_of_next_cell
-```
-Cross-check against `decoder/sequences.rs` on every test case.
+- Offsets are always emitted through the non-repeat path: `raw_offset = offset + 3`.
+  This is simpler than modeling zstd's repeat-offset encoder state machine.
+- `validate_sequences()` round-trips the encoded sequences through the local
+  decoder and falls back to a literals-only block if reconstruction does not
+  match the original input.
 
 ---
 
 ## Compression ratio: current state
 
-Because the sequence encoder emits 0 sequences, compression relies entirely
-on Huffman entropy coding of the raw bytes.
+Compression now combines Huffman-coded literals with LZ77/FSE sequence coding.
+That substantially improves text and repetitive-data compression versus the
+previous literals-only path.
 
 | Data type | Typical ratio |
 |---|---|
 | Single repeated byte (`'a' * 10 000`) | < 0.1% of original |
-| Short English text (repetitive) | 60–80% (no LZ match bonus) |
+| Short English text (repetitive) | materially better than literals-only mode |
 | Truly random bytes | ~100% (falls back to raw block) |
-
-With a working FSE sequence encoder, English text should reach 25–40%.
 
 ---
 

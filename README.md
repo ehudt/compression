@@ -7,11 +7,12 @@ compression algorithm in pure Rust, written without any C dependencies.
 
 - **Full zstd frame format** — magic number, frame header, window descriptor, content checksum
 - **Huffman-coded literals** — single-stream compressed literals with canonical Huffman codes
+- **FSE-coded sequences** — literal-length, match-length, and offset streams use zstd's predefined FSE tables
 - **RLE and raw literal blocks** — automatic selection for best compression
 - **Multi-block support** — large inputs are split into 128 KiB blocks
 - **Content checksum** — XXHash-32 verification on decompression
 - **Compression levels 1–22** — matching zstd's level conventions
-- **LZ77 match finder** — hash-chain based (foundation for FSE sequence encoding, planned)
+- **LZ77 match finder** — hash-chain based, wired into sequence generation for compressed blocks
 
 ## Quick start
 
@@ -55,7 +56,7 @@ src/
   fse.rs            – Finite State Entropy tables (FSE / tANS)
   encoder/
     mod.rs
-    block.rs        – Compressed block encoder (Huffman literals + 0 sequences)
+    block.rs        – Compressed block encoder (Huffman literals + FSE sequences)
     lz77.rs         – Hash-chain LZ77 match finder
   decoder/
     mod.rs
@@ -67,15 +68,17 @@ src/
 
 ## Compression approach
 
-The encoder currently encodes all data as Huffman-coded literals with 0 LZ77
-sequences.  This gives excellent compression ratios on highly repetitive data
-(via Huffman entropy coding) but does not exploit long-range redundancy the way
-the full zstd LZ77 + FSE sequence path would.
+The encoder now follows the basic zstd compressed-block pipeline:
 
-The LZ77 match finder (`encoder/lz77.rs`) and all FSE infrastructure (`fse.rs`)
-are fully implemented and the decoder supports the complete FSE sequence format.
-Wiring the encoder's LZ77 output through the FSE sequence encoder is the primary
-remaining work item.
+- parse the block with the hash-chain LZ77 matcher
+- collect literal runs and `(literal_length, match_length, offset)` sequences
+- Huffman-encode the literal section
+- FSE-encode the sequence section with zstd's predefined LL/ML/OF tables
+
+For compatibility and simplicity, the encoder currently emits offsets through
+the non-repeat-offset path and uses predefined FSE tables rather than
+per-block custom tables. If sequence encoding fails validation, the encoder
+falls back to a literals-only block so decompression remains correct.
 
 ## Status
 
@@ -88,7 +91,7 @@ remaining work item.
 | FSE tables (decode) | ✅ Complete |
 | Sequence decoder | ✅ Complete |
 | LZ77 match finder | ✅ Complete |
-| FSE sequence encoder | 🔧 Planned |
+| FSE sequence encoder | ✅ Complete |
 
 ## License
 
