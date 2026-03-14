@@ -3,9 +3,9 @@
 pub mod literals;
 pub mod sequences;
 
-use crate::error::{Result, ZstdError};
 use self::literals::decode_literals;
 use self::sequences::{decode_sequences, execute_sequences};
+use crate::error::{Result, ZstdError};
 
 /// Decode a single zstd block.
 ///

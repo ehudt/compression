@@ -176,7 +176,11 @@ pub enum Event {
     /// Literal bytes that should be emitted as-is.
     Literals(usize, usize), // (start, end)
     /// A back-reference match.
-    Match { pos: usize, offset: usize, length: usize },
+    Match {
+        pos: usize,
+        offset: usize,
+        length: usize,
+    },
 }
 
 /// Run LZ77 on `data` and produce a sequence of events.
@@ -231,7 +235,13 @@ mod tests {
         // Should mostly be literals
         let literal_bytes: usize = events
             .iter()
-            .filter_map(|e| if let Event::Literals(s, end) = e { Some(end - s) } else { None })
+            .filter_map(|e| {
+                if let Event::Literals(s, end) = e {
+                    Some(end - s)
+                } else {
+                    None
+                }
+            })
             .sum();
         assert!(literal_bytes > 0);
     }
@@ -256,7 +266,11 @@ mod tests {
                 Event::Literals(s, e) => {
                     reconstructed.extend_from_slice(&original[*s..*e]);
                 }
-                Event::Match { pos: _, offset, length } => {
+                Event::Match {
+                    pos: _,
+                    offset,
+                    length,
+                } => {
                     let src_start = reconstructed.len() - offset;
                     for i in 0..*length {
                         let b = reconstructed[src_start + i];

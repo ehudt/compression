@@ -1,7 +1,7 @@
 //! Decoding of the literals section within a compressed block.
 
 use crate::error::{Result, ZstdError};
-use crate::huffman::{read_huffman_header, HuffmanTable};
+use crate::huffman::{HuffmanTable, read_huffman_header};
 
 /// The result of decoding a literals section.
 pub struct LiteralsSection {
@@ -50,8 +50,7 @@ pub fn decode_literals(data: &[u8]) -> Result<LiteralsSection> {
         // Huffman-compressed literals (2 = single stream, 3 = 4 streams)
         2 | 3 => {
             let four_streams = literals_type == 3;
-            let (regen_size, comp_size, header_size) =
-                decode_size_compressed(data, size_format)?;
+            let (regen_size, comp_size, header_size) = decode_size_compressed(data, size_format)?;
 
             let payload = &data[header_size..];
             if payload.len() < comp_size {
@@ -101,10 +100,9 @@ fn decode_size_raw(data: &[u8], size_format: u8) -> Result<(usize, usize)> {
             if data.len() < 3 {
                 return Err(ZstdError::UnexpectedEof);
             }
-            let size = ((data[0] as usize >> 4)
-                | ((data[1] as usize) << 4)
-                | ((data[2] as usize) << 12))
-                & 0xFFFFF;
+            let size =
+                ((data[0] as usize >> 4) | ((data[1] as usize) << 4) | ((data[2] as usize) << 12))
+                    & 0xFFFFF;
             Ok((size, 3))
         }
         _ => unreachable!(),
@@ -155,11 +153,7 @@ fn decode_size_compressed(data: &[u8], size_format: u8) -> Result<(usize, usize,
 }
 
 /// Decode 4 interleaved Huffman streams.
-fn decode_four_streams(
-    data: &[u8],
-    table: &HuffmanTable,
-    total_regen: usize,
-) -> Result<Vec<u8>> {
+fn decode_four_streams(data: &[u8], table: &HuffmanTable, total_regen: usize) -> Result<Vec<u8>> {
     if data.len() < 6 {
         return Err(ZstdError::UnexpectedEof);
     }

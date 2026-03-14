@@ -9,10 +9,8 @@ fn main() {
     println!("Original:   {} bytes", original.len());
 
     for level in [1, 3, 6, 9] {
-        let compressed = zstd_rs::compress(original, level)
-            .expect("compression failed");
-        let decompressed = zstd_rs::decompress(&compressed)
-            .expect("decompression failed");
+        let compressed = zstd_rs::compress(original, level).expect("compression failed");
+        let decompressed = zstd_rs::decompress(&compressed).expect("decompression failed");
 
         assert_eq!(&decompressed, original, "round-trip mismatch!");
         println!(

@@ -4,7 +4,7 @@
 //! Applying them reconstructs the original data.
 
 use crate::error::{Result, ZstdError};
-use crate::fse::{build_decode_table, read_distribution_table, BitReader, FseDecodeTable};
+use crate::fse::{BitReader, FseDecodeTable, build_decode_table, read_distribution_table};
 use crate::tables::sequences::{
     LITERALS_LENGTH_DEFAULT_ACCURACY, LITERALS_LENGTH_DEFAULT_NORM, LITERALS_LENGTH_EXTRA,
     MATCH_LENGTH_DEFAULT_ACCURACY, MATCH_LENGTH_DEFAULT_NORM, MATCH_LENGTH_EXTRA,
@@ -55,13 +55,8 @@ pub fn decode_sequences(data: &[u8]) -> Result<(Vec<Sequence>, usize)> {
 
     // Remaining bytes form the FSE bitstream (read backwards)
     let bitstream = &data[offset..];
-    let sequences = decode_sequence_bitstream(
-        bitstream,
-        num_sequences,
-        &ll_table,
-        &of_table,
-        &ml_table,
-    )?;
+    let sequences =
+        decode_sequence_bitstream(bitstream, num_sequences, &ll_table, &of_table, &ml_table)?;
 
     Ok((sequences, data.len()))
 }
@@ -121,10 +116,7 @@ fn build_mode_table(data: &[u8], mode: u8, ty: TableType) -> Result<(FseDecodeTa
                     LITERALS_LENGTH_DEFAULT_NORM.to_vec(),
                     LITERALS_LENGTH_DEFAULT_ACCURACY,
                 ),
-                TableType::Offset => (
-                    OFFSET_DEFAULT_NORM.to_vec(),
-                    OFFSET_DEFAULT_ACCURACY,
-                ),
+                TableType::Offset => (OFFSET_DEFAULT_NORM.to_vec(), OFFSET_DEFAULT_ACCURACY),
                 TableType::MatchLength => (
                     MATCH_LENGTH_DEFAULT_NORM.to_vec(),
                     MATCH_LENGTH_DEFAULT_ACCURACY,
@@ -149,7 +141,9 @@ fn build_mode_table(data: &[u8], mode: u8, ty: TableType) -> Result<(FseDecodeTa
         }
         3 => {
             // Repeat: caller must handle; return a sentinel
-            Err(ZstdError::SequenceError("repeat mode not handled at this level"))
+            Err(ZstdError::SequenceError(
+                "repeat mode not handled at this level",
+            ))
         }
         _ => Err(ZstdError::SequenceError("unknown mode")),
     }

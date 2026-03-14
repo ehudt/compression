@@ -277,8 +277,8 @@ fn build_lengths(freqs: &[u32], max_len: u8) -> Result<[u8; MAX_SYMBOLS]> {
         .collect(); // negative = leaf (symbol index)
 
     // priority queue: (neg_freq, node_idx)
-    use std::collections::BinaryHeap;
     use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
     let mut heap: BinaryHeap<Reverse<(u64, usize)>> = nodes
         .iter()
         .enumerate()
@@ -393,7 +393,11 @@ pub fn write_huffman_header(table: &HuffmanTable) -> Vec<u8> {
     out.push((num_symbols + 127) as u8);
     for i in (0..num_symbols).step_by(2) {
         let lo = weights[i];
-        let hi = if i + 1 < num_symbols { weights[i + 1] } else { 0 };
+        let hi = if i + 1 < num_symbols {
+            weights[i + 1]
+        } else {
+            0
+        };
         out.push(lo | (hi << 4));
     }
     out
@@ -401,7 +405,7 @@ pub fn write_huffman_header(table: &HuffmanTable) -> Vec<u8> {
 
 /// Decode FSE-encoded Huffman weights.
 fn decode_fse_weights(data: &[u8]) -> Result<Vec<u8>> {
-    use crate::fse::{build_decode_table, read_distribution_table, BitReader};
+    use crate::fse::{BitReader, build_decode_table, read_distribution_table};
 
     let (norm, accuracy_log, consumed) = read_distribution_table(data)?;
     let decode_table = build_decode_table(&norm, accuracy_log)?;
@@ -449,7 +453,10 @@ mod tests {
         }
         let table = HuffmanTable::from_frequencies(&freqs).unwrap();
         let encoded = table.encode(&data).unwrap();
-        let total_bits: usize = data.iter().map(|&b| table.lengths[b as usize] as usize).sum();
+        let total_bits: usize = data
+            .iter()
+            .map(|&b| table.lengths[b as usize] as usize)
+            .sum();
         let decoded = table.decode(&encoded, total_bits, data.len()).unwrap();
         assert_eq!(decoded, data);
     }

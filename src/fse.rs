@@ -62,11 +62,7 @@ pub struct FseEncodeTable {
 /// Normalize symbol frequencies into FSE probabilities summing to `1 << accuracy_log`.
 ///
 /// Returns a vector of normalized counts indexed by symbol value.
-pub fn normalize_counts(
-    counts: &[u32],
-    total: u32,
-    accuracy_log: u8,
-) -> Result<Vec<i16>> {
+pub fn normalize_counts(counts: &[u32], total: u32, accuracy_log: u8) -> Result<Vec<i16>> {
     if accuracy_log < FSE_MIN_TABLELOG || accuracy_log > FSE_MAX_TABLELOG {
         return Err(ZstdError::FseError("accuracy_log out of range"));
     }
@@ -351,7 +347,11 @@ impl<'a> BitReader<'a> {
 
     /// Read `n` bits (LSB first).
     pub fn read_bits(&mut self, n: u32) -> u64 {
-        debug_assert!(n <= self.bits, "not enough bits: need {n}, have {}", self.bits);
+        debug_assert!(
+            n <= self.bits,
+            "not enough bits: need {n}, have {}",
+            self.bits
+        );
         let val = self.buf & ((1u64 << n) - 1);
         self.buf >>= n;
         self.bits -= n;
