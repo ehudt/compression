@@ -1,0 +1,22 @@
+[package]
+name = "zstd_rs"
+version = "0.1.0"
+edition = "2024"
+description = "A from-scratch implementation of the Zstandard (zstd) compression algorithm in Rust"
+license = "MIT"
+authors = ["zstd_rs contributors"]
+
+[[bench]]
+name = "compression"
+harness = false
+
+[[bin]]
+name = "zstd_rs"
+path = "src/main.rs"
+
+[dependencies]
+thiserror = "2"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1"
