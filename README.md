@@ -63,12 +63,17 @@ cargo run --profile profiling --features profiling -- \
 
 The generated file is an SVG flamegraph. `--profile-repeat` reruns the in-memory
 compression or decompression workload before writing the final output once, which
-is useful when a single command is too short-lived to collect samples.
+is useful when a single command is too short-lived to collect samples. The same
+profile capture also writes:
+
+- `*.folded` — folded stack samples in plain text
+- `*.summary.txt` — a compact textual summary with top leaf symbols, top inclusive symbols, and top stacks
 
 ### Test profiling
 
 Set `ZSTD_RS_PROFILE_TESTS` to an output directory. Each integration test writes its
-own flamegraph as `<test-name>.svg`:
+own profile artifacts as `<test-name>.svg`, `<test-name>.folded`, and
+`<test-name>.summary.txt`:
 
 ```bash
 mkdir -p profiles/tests
@@ -86,6 +91,8 @@ ZSTD_RS_PROFILE_BENCHES=1 \
 ```
 
 When that env var is not set, benches run exactly as before.
+When it is set, each benchmark profile directory gets `flamegraph.svg`,
+`flamegraph.folded`, and `flamegraph.summary.txt`.
 
 ## Architecture
 

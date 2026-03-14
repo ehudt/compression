@@ -21,10 +21,12 @@
 //! immediately visible in the same run.
 
 use std::env;
+#[cfg(feature = "profiling")]
+use std::path::Path;
 
+use criterion::profiler::Profiler;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 #[cfg(feature = "profiling")]
-use pprof::criterion::{Output, PProfProfiler};
 use zstd_rs::{compress, decompress};
 
 const BENCHES_ENV_VAR: &str = "ZSTD_RS_PROFILE_BENCHES";
@@ -35,7 +37,7 @@ fn criterion_config() -> Criterion {
     #[cfg(feature = "profiling")]
     {
         if profiling_enabled() {
-            return criterion.with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
+            return criterion.with_profiler(BenchProfiler::new(100));
         }
     }
 
@@ -52,6 +54,47 @@ fn profiling_enabled() -> bool {
         Err(err) => {
             eprintln!("failed to read {BENCHES_ENV_VAR}: {err}");
             false
+        }
+    }
+}
+
+#[cfg(feature = "profiling")]
+struct BenchProfiler {
+    frequency: i32,
+    active_profiler: Option<pprof::ProfilerGuard<'static>>,
+}
+
+#[cfg(feature = "profiling")]
+impl BenchProfiler {
+    fn new(frequency: i32) -> Self {
+        Self {
+            frequency,
+            active_profiler: None,
+        }
+    }
+}
+
+#[cfg(feature = "profiling")]
+impl Profiler for BenchProfiler {
+    fn start_profiling(&mut self, _benchmark_id: &str, _benchmark_dir: &Path) {
+        self.active_profiler = Some(
+            pprof::ProfilerGuard::new(self.frequency).expect("failed to start benchmark profiler"),
+        );
+    }
+
+    fn stop_profiling(&mut self, _benchmark_id: &str, benchmark_dir: &Path) {
+        std::fs::create_dir_all(benchmark_dir).expect("failed to create benchmark profile dir");
+
+        if let Some(profiler) = self.active_profiler.take() {
+            let report = profiler
+                .report()
+                .build()
+                .expect("failed to build benchmark profile report");
+            zstd_rs::profiling::write_report_outputs(
+                &report,
+                &benchmark_dir.join("flamegraph.svg"),
+            )
+            .expect("failed to write benchmark profile artifacts");
         }
     }
 }

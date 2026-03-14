@@ -50,8 +50,8 @@ disabled.
   `ZSTD_RS_PROFILE_TESTS=/path/to/dir` is set.
 - Criterion benchmarks enable `pprof` only when
   `ZSTD_RS_PROFILE_BENCHES=1` is set; plain `cargo bench` stays unchanged.
-- Current output is flamegraph SVG. If an agent needs textual data, it must
-  post-process the profile output or add another export format explicitly.
+- Every profile capture also writes textual companions:
+  `*.folded` for folded stacks and `*.summary.txt` for an agent-friendly summary.
 
 ---
 
