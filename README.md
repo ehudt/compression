@@ -43,6 +43,32 @@ cargo bench             # Criterion benchmarks
 cargo run --example basic
 ```
 
+### Acceptance tests (interoperability with the system `zstd` tool)
+
+The acceptance tests in `tests/acceptance.rs` verify round-trip correctness
+against the reference C implementation in both directions:
+
+1. **Our compress → `zstd -d`** — our output must be a valid zstd stream.
+2. **`zstd` compress → our decompress** — we must correctly decode reference output.
+
+**Prerequisite:** install the `zstd` CLI (v1.4+).
+
+```bash
+# Debian / Ubuntu
+sudo apt-get install zstd
+
+# macOS
+brew install zstd
+
+# Run acceptance tests only
+cargo test --test acceptance
+
+# Run alongside all other tests
+cargo test
+```
+
+Tests skip gracefully (with a message) if `zstd` is not found in `PATH`.
+
 ## Architecture
 
 ```

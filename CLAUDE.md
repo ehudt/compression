@@ -25,11 +25,36 @@ compress_bound(data_len: usize)    -> usize              // worst-case output si
 cargo build              # compile library + binary
 cargo test               # unit tests + integration tests + doctests (must all pass)
 cargo test --test integration  # integration tests only
+cargo test --test acceptance   # interoperability tests against system zstd (see below)
 cargo bench              # Criterion benchmarks (speed + ratio)
 cargo run --example basic       # demo
 cargo run --bin zstd_rs -- compress 3 input.txt out.zst
 cargo run --bin zstd_rs -- decompress out.zst result.txt
 ```
+
+### Acceptance tests
+
+`tests/acceptance.rs` checks interoperability with the system `zstd` binary in
+two directions:
+
+- **Our compress → `zstd -d`**: 10 tests (empty, single byte, all-zeros,
+  repetitive text, sequential bytes, pseudo-random, multi-block, level sweep
+  1–19, all-256-byte-values).
+- **`zstd` compress → our decompress**: 10 tests over the same corpus at
+  levels 1, 3, 9, 19.
+
+**Prerequisite:** the `zstd` CLI (v1.4+) must be in `PATH`.
+
+```bash
+# Install on Debian/Ubuntu
+sudo apt-get install zstd
+
+# Install on macOS
+brew install zstd
+```
+
+If the binary is absent the tests skip with an explanatory message rather
+than failing, so the suite remains usable in environments without the tool.
 
 Tests must pass before committing.  The project has zero warnings in the
 default configuration; do not introduce new warnings.
