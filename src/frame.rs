@@ -188,6 +188,7 @@ pub fn decompress(input: &[u8]) -> Result<Vec<u8>> {
 
     // Decode blocks
     let mut output: Vec<u8> = Vec::with_capacity(content_size.unwrap_or(4096) as usize);
+    let mut repeat_offsets = [1usize, 4, 8];
     loop {
         if pos + 3 > input.len() {
             return Err(ZstdError::UnexpectedEof);
@@ -210,7 +211,7 @@ pub fn decompress(input: &[u8]) -> Result<Vec<u8>> {
 
         let history_start = output.len().saturating_sub(128 * 1024);
         let history = output[history_start..].to_vec();
-        decode_block(block_data, block_type, block_size, &history, &mut output)?;
+        decode_block(block_data, block_type, block_size, &history, &mut repeat_offsets, &mut output)?;
 
         if last_block {
             break;

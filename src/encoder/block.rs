@@ -157,32 +157,43 @@ fn encode_sequences(sequences: &[EncodedSequence]) -> Vec<u8> {
     write_sequence_count(&mut out, sequences.len());
     out.push(0x00); // predefined tables for LL/OF/ML
 
+    // Encode sequences in reverse order (last sequence → lowest bits, first → highest).
+    // Within each sequence block, extra bits go first (lower) and state transitions
+    // go after (higher), so the decoder reading MSB-first sees transitions before extras.
+    // Initial states are written last (highest bits); decoder reads them first.
     let mut bits = BitWriter::new();
-    bits.write_bits(ll_states[0] as u64, ll_table.accuracy_log as u32);
-    bits.write_bits(of_states[0] as u64, of_table.accuracy_log as u32);
-    bits.write_bits(ml_states[0] as u64, ml_table.accuracy_log as u32);
 
-    for i in 0..sequences.len() {
+    for i in (0..sequences.len()).rev() {
         let seq = sequences[i];
-        bits.write_bits(seq.of_extra as u64, seq.of_code as u32);
-        bits.write_bits(
-            seq.ml_extra as u64,
-            MATCH_LENGTH_EXTRA[seq.ml_code].1 as u32,
-        );
+        // State transitions come before extras in the low bits, so the decoder
+        // (reading MSB-first) sees extras before transitions for each sequence.
+        // Transition write order (lowest→highest): OF, ML, LL → decoder reads LL, ML, OF.
+        if i + 1 < sequences.len() {
+            let (of_bits, of_nb) = of_trans[i];
+            bits.write_bits(of_bits as u64, of_nb as u32);
+            let (ml_bits, ml_nb) = ml_trans[i];
+            bits.write_bits(ml_bits as u64, ml_nb as u32);
+            let (ll_bits, ll_nb) = ll_trans[i];
+            bits.write_bits(ll_bits as u64, ll_nb as u32);
+        }
+        // Extra bits come above transitions (highest within seq group).
+        // Write order (lowest→highest): LL, ML, OF → decoder reads OF, ML, LL.
         bits.write_bits(
             seq.ll_extra as u64,
             LITERALS_LENGTH_EXTRA[seq.ll_code].1 as u32,
         );
-
-        if i + 1 < sequences.len() {
-            let (ll_bits, ll_nb) = ll_trans[i];
-            bits.write_bits(ll_bits as u64, ll_nb as u32);
-            let (ml_bits, ml_nb) = ml_trans[i];
-            bits.write_bits(ml_bits as u64, ml_nb as u32);
-            let (of_bits, of_nb) = of_trans[i];
-            bits.write_bits(of_bits as u64, of_nb as u32);
-        }
+        bits.write_bits(
+            seq.ml_extra as u64,
+            MATCH_LENGTH_EXTRA[seq.ml_code].1 as u32,
+        );
+        bits.write_bits(seq.of_extra as u64, seq.of_code as u32);
     }
+
+    // Initial states: ML (lowest), OF, LL (highest) so decoder reads LL first.
+    bits.write_bits(ml_states[0] as u64, ml_table.accuracy_log as u32);
+    bits.write_bits(of_states[0] as u64, of_table.accuracy_log as u32);
+    bits.write_bits(ll_states[0] as u64, ll_table.accuracy_log as u32);
+
     out.extend_from_slice(&bits.finish());
     out
 }

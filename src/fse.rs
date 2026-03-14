@@ -301,71 +301,86 @@ pub fn read_distribution_table(data: &[u8]) -> Result<(Vec<i16>, u8, usize)> {
     Ok((norm, accuracy_log, byte_idx))
 }
 
-/// A bit-stream reader (LSB first) used during FSE decoding.
+/// A bit-stream reader used during FSE decoding.
+///
+/// Implements the zstd backward bitstream format: bytes are loaded as a
+/// little-endian integer (byte[0] at bit 0, byte[last] at high bits).
+/// The sentinel bit (highest set bit in the stream) is stripped on init.
+/// Bits are then read from the HIGH end downward (MSB-first).
 pub struct BitReader<'a> {
     data: &'a [u8],
-    /// Byte index we're reading from (decrement as we consume).
-    byte_pos: isize,
-    /// Bit buffer.
-    buf: u64,
-    /// Number of valid bits in buf.
-    bits: u32,
+    /// Index of the start of the currently loaded 8-byte window.
+    ptr: usize,
+    /// 8 bytes loaded as LE u64 from data[ptr..ptr+8].
+    bit_container: u64,
+    /// Number of bits consumed from the MSB of bit_container.
+    bits_consumed: u32,
 }
 
 impl<'a> BitReader<'a> {
-    /// Create a new bit-reader that reads from the END of `data` backwards
-    /// (as required by FSE decoders in zstd).
+    /// Create a new bit-reader.  Loads the last ≤8 bytes as a LE u64,
+    /// finds the sentinel (highest set bit), and positions the reader
+    /// just past it.
     pub fn new(data: &'a [u8]) -> Self {
-        let mut reader = Self {
-            data,
-            byte_pos: data.len() as isize - 1,
-            buf: 0,
-            bits: 0,
+        let n = data.len();
+        if n == 0 {
+            return Self { data, ptr: 0, bit_container: 0, bits_consumed: 64 };
+        }
+
+        let (ptr, bit_container) = if n >= 8 {
+            let ptr = n - 8;
+            let mut bytes = [0u8; 8];
+            bytes.copy_from_slice(&data[ptr..ptr + 8]);
+            (ptr, u64::from_le_bytes(bytes))
+        } else {
+            // Load n bytes into the LOW positions; high bytes are 0.
+            let mut bytes = [0u8; 8];
+            bytes[..n].copy_from_slice(data);
+            (0usize, u64::from_le_bytes(bytes))
         };
-        reader.refill();
-        // Find the first set bit (the sentinel) and skip past it
-        if reader.bits > 0 {
-            let leading = reader.buf.leading_zeros();
-            // bits is at most 56; sentinel is in the top `bits` of a u64
-            let sentinel_bit = 63 - leading;
-            if sentinel_bit < reader.bits {
-                // clear sentinel
-                reader.buf &= (1u64 << sentinel_bit) - 1;
-                reader.bits = sentinel_bit;
-            }
-        }
-        reader
+
+        // Sentinel = highest set bit.  Consume it and all zero bits above it.
+        let bits_consumed = 1 + bit_container.leading_zeros();
+
+        Self { data, ptr, bit_container, bits_consumed }
     }
 
-    fn refill(&mut self) {
-        while self.bits <= 56 && self.byte_pos >= 0 {
-            self.buf |= (self.data[self.byte_pos as usize] as u64) << self.bits;
-            self.bits += 8;
-            self.byte_pos -= 1;
+    /// Reload the window: move ptr backward so that sub-byte alignment is
+    /// maintained, then re-load 8 bytes as a fresh LE u64.
+    fn reload(&mut self) {
+        let full_bytes = (self.bits_consumed / 8) as usize;
+        if full_bytes == 0 || self.ptr == 0 {
+            return;
         }
+        let go_back = full_bytes.min(self.ptr);
+        self.ptr -= go_back;
+        self.bits_consumed -= (go_back * 8) as u32;
+
+        let n = self.data.len();
+        let avail = (n - self.ptr).min(8);
+        let mut bytes = [0u8; 8];
+        bytes[..avail].copy_from_slice(&self.data[self.ptr..self.ptr + avail]);
+        self.bit_container = u64::from_le_bytes(bytes);
     }
 
-    /// Read `n` bits (LSB first).
+    /// Read `n` bits from the HIGH end (MSB-first).
     pub fn read_bits(&mut self, n: u32) -> u64 {
-        debug_assert!(
-            n <= self.bits,
-            "not enough bits: need {n}, have {}",
-            self.bits
-        );
-        let val = self.buf & ((1u64 << n) - 1);
-        self.buf >>= n;
-        self.bits -= n;
-        self.refill();
+        if n == 0 {
+            return 0;
+        }
+        let val = (self.bit_container << self.bits_consumed) >> (64 - n);
+        self.bits_consumed += n;
+        self.reload();
         val
     }
 
-    /// Number of bits remaining.
+    /// Number of bits still available.
     pub fn bits_left(&self) -> u32 {
-        self.bits + ((self.byte_pos + 1) as u32) * 8
+        64u32.saturating_sub(self.bits_consumed) + (self.ptr as u32) * 8
     }
 
     pub fn is_empty(&self) -> bool {
-        self.bits == 0 && self.byte_pos < 0
+        self.bits_consumed >= 64 && self.ptr == 0
     }
 }
 
@@ -398,6 +413,10 @@ impl BitWriter {
     }
 
     /// Flush remaining bits with a sentinel '1' bit and pad to byte boundary.
+    ///
+    /// The zstd backward bitstream has the sentinel in the LAST (highest-address)
+    /// byte.  We write bits LSB-first into a growing buffer, so the sentinel
+    /// naturally ends up in the last flushed byte — no reversal needed.
     pub fn finish(mut self) -> Vec<u8> {
         // Write sentinel bit
         self.pending |= 1u64 << self.pending_bits;
@@ -407,8 +426,6 @@ impl BitWriter {
             self.pending >>= 8;
             self.pending_bits = self.pending_bits.saturating_sub(8);
         }
-        // The FSE bitstream is stored in reverse in zstd, so reverse the bytes.
-        self.buf.reverse();
         self.buf
     }
 }
@@ -425,16 +442,18 @@ mod tests {
 
     #[test]
     fn test_bit_writer_reader_roundtrip() {
+        // BitWriter accumulates bits LSB-first; BitReader reads MSB-first.
+        // So the decoder reads in the reverse order of writes.
         let mut w = BitWriter::new();
-        w.write_bits(0b101, 3);
-        w.write_bits(0b1101, 4);
-        w.write_bits(0b11, 2);
+        w.write_bits(0b11, 2);   // written first → lowest bits → read last
+        w.write_bits(0b1101, 4); // written second → middle bits
+        w.write_bits(0b101, 3);  // written last → highest bits → read first
         let data = w.finish();
 
         let mut r = BitReader::new(&data);
-        assert_eq!(r.read_bits(3), 0b101);
+        assert_eq!(r.read_bits(3), 0b101);  // reads highest bits first
         assert_eq!(r.read_bits(4), 0b1101);
-        assert_eq!(r.read_bits(2), 0b11);
+        assert_eq!(r.read_bits(2), 0b11);   // reads lowest bits last
     }
 
     #[test]
