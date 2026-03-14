@@ -1,7 +1,6 @@
-# CLAUDE.md — Agent guide for zstd_rs
+# CLAUDE.md — Claude Code guide for zstd_rs
 
-This file gives an AI agent everything it needs to work productively in this
-codebase without reading every source file first.
+This file gives Claude Code-focused guidance. For cross-agent guidance shared with Codex, see `AGENTS.md`.
 
 ---
 

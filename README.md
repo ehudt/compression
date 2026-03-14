@@ -34,6 +34,11 @@ cargo run --bin zstd_rs -- compress 3 input.txt output.zst
 cargo run --bin zstd_rs -- decompress output.zst result.txt
 ```
 
+## AI agent documentation
+
+- `AGENTS.md` is the canonical cross-agent guide (Codex + Claude Code).
+- `CLAUDE.md` contains Claude Code-specific framing and points back to `AGENTS.md`.
+
 ## Running tests
 
 ```bash
