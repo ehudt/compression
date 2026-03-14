@@ -27,6 +27,15 @@ pub struct Sequence {
 /// `data` is the raw sequences section bytes.
 /// Returns the list of sequences and the number of bytes consumed.
 pub fn decode_sequences(data: &[u8]) -> Result<(Vec<Sequence>, usize)> {
+    let mut repeat_offsets = [1usize, 4, 8];
+    decode_sequences_with_offsets(data, &mut repeat_offsets)
+}
+
+/// Decode sequences, threading repeat-offset state across calls (for multi-block frames).
+pub fn decode_sequences_with_offsets(
+    data: &[u8],
+    repeat_offsets: &mut [usize; 3],
+) -> Result<(Vec<Sequence>, usize)> {
     if data.is_empty() {
         return Ok((vec![], 0));
     }
@@ -61,6 +70,7 @@ pub fn decode_sequences(data: &[u8]) -> Result<(Vec<Sequence>, usize)> {
         &ll_table,
         &of_table,
         &ml_table,
+        repeat_offsets,
     )?;
 
     Ok((sequences, data.len()))
@@ -174,6 +184,7 @@ fn decode_sequence_bitstream(
     ll_table: &FseDecodeTable,
     of_table: &FseDecodeTable,
     ml_table: &FseDecodeTable,
+    repeat_offsets: &mut [usize; 3],
 ) -> Result<Vec<Sequence>> {
     let mut reader = BitReader::new(data);
     let ll_log = ll_table.accuracy_log as u32;
@@ -186,7 +197,6 @@ fn decode_sequence_bitstream(
     let mut ml_state = reader.read_bits(ml_log) as usize;
 
     let mut sequences = Vec::with_capacity(num_sequences);
-    let mut repeat_offsets = [1usize, 4, 8];
 
     for seq_idx in 0..num_sequences {
         // Read offset code
@@ -199,7 +209,11 @@ fn decode_sequence_bitstream(
         let ll_entry = &ll_table.table[ll_state];
         let ll_code = ll_entry.symbol as usize;
 
-        // Decode offset
+        // zstd bitstream order (per spec §3.1.1.3.2, confirmed by reference decoder):
+        // For each sequence: extra bits first (OF, ML, LL), then state transitions (LL, ML, OF).
+        // State transitions are skipped for the last sequence.
+
+        // Decode offset extra bits first
         let raw_offset = if of_code <= 31 {
             let extra_bits = of_code as u32;
             let extra = reader.read_bits(extra_bits) as usize;
@@ -245,7 +259,7 @@ fn decode_sequence_bitstream(
             o
         };
 
-        // Decode match length
+        // Decode match length extra bits (second, after OF extra)
         if ml_code >= MATCH_LENGTH_EXTRA.len() {
             return Err(ZstdError::SequenceError("ml_code out of range"));
         }
@@ -253,7 +267,7 @@ fn decode_sequence_bitstream(
         let ml_extra = reader.read_bits(ml_extra_bits as u32) as u32;
         let match_length = (ml_base + ml_extra) as usize;
 
-        // Decode literal length
+        // Decode literal length extra bits (third, after ML extra)
         if ll_code >= LITERALS_LENGTH_EXTRA.len() {
             return Err(ZstdError::SequenceError("ll_code out of range"));
         }
@@ -261,13 +275,8 @@ fn decode_sequence_bitstream(
         let ll_extra = reader.read_bits(ll_extra_bits as u32) as u32;
         let literal_length = (ll_base + ll_extra) as usize;
 
-        sequences.push(Sequence {
-            literal_length,
-            match_length,
-            offset,
-        });
-
-        // Advance FSE states (except for the last sequence)
+        // Advance FSE states AFTER reading extra bits (for non-last sequences).
+        // Read order: LL transition, ML transition, OF transition.
         if seq_idx + 1 < num_sequences {
             let ll_nb = ll_entry.num_bits as u32;
             let ll_extra_state = reader.read_bits(ll_nb) as usize;
@@ -281,6 +290,12 @@ fn decode_sequence_bitstream(
             let of_extra_state = reader.read_bits(of_nb) as usize;
             of_state = of_entry.base_line as usize + of_extra_state;
         }
+
+        sequences.push(Sequence {
+            literal_length,
+            match_length,
+            offset,
+        });
     }
 
     Ok(sequences)
@@ -341,4 +356,70 @@ pub fn execute_sequences(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::*;
+    use crate::fse::BitReader;
+    use crate::tables::sequences::*;
+
+    #[test]
+    fn inspect_predefined_tables() {
+        let ll_table = build_decode_table(&LITERALS_LENGTH_DEFAULT_NORM.to_vec(), LITERALS_LENGTH_DEFAULT_ACCURACY).unwrap();
+        let of_table = build_decode_table(&OFFSET_DEFAULT_NORM.to_vec(), OFFSET_DEFAULT_ACCURACY).unwrap();
+        let ml_table = build_decode_table(&MATCH_LENGTH_DEFAULT_NORM.to_vec(), MATCH_LENGTH_DEFAULT_ACCURACY).unwrap();
+
+        // States from the level9 bitstream (ll=14, of=10, ml=44)
+        eprintln!("LL[14] = sym={} nb={} base={}", ll_table.table[14].symbol, ll_table.table[14].num_bits, ll_table.table[14].base_line);
+        eprintln!("OF[10] = sym={} nb={} base={}", of_table.table[10].symbol, of_table.table[10].num_bits, of_table.table[10].base_line);
+        eprintln!("ML[44] = sym={} nb={} base={}", ml_table.table[44].symbol, ml_table.table[44].num_bits, ml_table.table[44].base_line);
+
+        // Print all table entries
+        eprintln!("=== LL table ===");
+        for (i, e) in ll_table.table.iter().enumerate() {
+            eprintln!("  LL[{:2}] sym={:2} nb={} base={:2}", i, e.symbol, e.num_bits, e.base_line);
+        }
+        eprintln!("=== OF table ===");
+        for (i, e) in of_table.table.iter().enumerate() {
+            eprintln!("  OF[{:2}] sym={:2} nb={} base={:2}", i, e.symbol, e.num_bits, e.base_line);
+        }
+        eprintln!("=== ML table ===");
+        for (i, e) in ml_table.table.iter().enumerate() {
+            eprintln!("  ML[{:2}] sym={:2} nb={} base={:2}", i, e.symbol, e.num_bits, e.base_line);
+        }
+    }
+
+    #[test]
+    fn decode_level9_bitstream() {
+        // The actual level9 bitstream for repetitive_text(32768)
+        // 2 sequences, predefined tables
+        let seq_section = &[0x02u8, 0x00, 0xd0, 0x3f, 0x54, 0x8b, 0x16, 0xac, 0x72, 0x02];
+        match decode_sequences(seq_section) {
+            Ok((seqs, _)) => {
+                for (i, seq) in seqs.iter().enumerate() {
+                    eprintln!("Seq {}: ll={}, ml={}, offset={}", i, seq.literal_length, seq.match_length, seq.offset);
+                }
+            }
+            Err(e) => eprintln!("ERROR: {}", e),
+        }
+    }
+
+    #[test]
+    fn debug_reference_bitstream() {
+        // Reference bitstream for "hello world " * 100 compressed at level 1
+        // Expected: ll=12, ml=1188, offset=12
+        let seq_section = &[0x01u8, 0x00, 0xa1, 0xfc, 0x2f, 0x49];
+        
+        let (seqs, _) = decode_sequences(seq_section).expect("decode failed");
+        
+        for (i, seq) in seqs.iter().enumerate() {
+            eprintln!("Seq {}: ll={}, ml={}, offset={}", i, seq.literal_length, seq.match_length, seq.offset);
+        }
+        
+        assert_eq!(seqs.len(), 1);
+        assert_eq!(seqs[0].literal_length, 12, "literal_length mismatch");
+        assert_eq!(seqs[0].match_length, 1188, "match_length mismatch");
+        assert_eq!(seqs[0].offset, 12, "offset mismatch");
+    }
 }

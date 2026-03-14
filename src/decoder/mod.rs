@@ -5,7 +5,7 @@ pub mod sequences;
 
 use crate::error::{Result, ZstdError};
 use self::literals::decode_literals;
-use self::sequences::{decode_sequences, execute_sequences};
+use self::sequences::{decode_sequences_with_offsets, execute_sequences};
 
 /// Decode a single zstd block.
 ///
@@ -13,12 +13,14 @@ use self::sequences::{decode_sequences, execute_sequences};
 /// `block_type` — 0=raw, 1=RLE, 2=compressed.
 /// `block_size` — declared regenerated size for RLE blocks.
 /// `history`  — decompressed bytes from previous blocks (sliding window).
+/// `repeat_offsets` — FSE repeat-offset state, maintained across blocks in a frame.
 /// `output`   — destination buffer.
 pub fn decode_block(
     data: &[u8],
     block_type: u8,
     block_size: usize,
     history: &[u8],
+    repeat_offsets: &mut [usize; 3],
     output: &mut Vec<u8>,
 ) -> Result<()> {
     match block_type {
@@ -37,14 +39,19 @@ pub fn decode_block(
         }
         2 => {
             // Compressed block
-            decode_compressed_block(data, history, output)
+            decode_compressed_block(data, history, repeat_offsets, output)
         }
         3 => Err(ZstdError::InvalidBlockType(3)),
         _ => Err(ZstdError::InvalidBlockType(block_type)),
     }
 }
 
-fn decode_compressed_block(data: &[u8], history: &[u8], output: &mut Vec<u8>) -> Result<()> {
+fn decode_compressed_block(
+    data: &[u8],
+    history: &[u8],
+    repeat_offsets: &mut [usize; 3],
+    output: &mut Vec<u8>,
+) -> Result<()> {
     // Decode literals section
     let lit_section = decode_literals(data)?;
     let literals = lit_section.literals;
@@ -52,7 +59,7 @@ fn decode_compressed_block(data: &[u8], history: &[u8], output: &mut Vec<u8>) ->
 
     // Decode sequences section
     let seq_data = &data[seq_start..];
-    let (sequences, _) = decode_sequences(seq_data)?;
+    let (sequences, _) = decode_sequences_with_offsets(seq_data, repeat_offsets)?;
 
     // Execute sequences
     execute_sequences(&sequences, &literals, history, output)
