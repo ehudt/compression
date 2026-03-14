@@ -331,15 +331,28 @@ fn encode_rle(sym: u8, count: usize) -> Result<Vec<u8>> {
 
 fn encode_compressed(regen: usize, huff_header: &[u8], encoded: &[u8]) -> Result<Vec<u8>> {
     let comp = huff_header.len() + encoded.len();
-    debug_assert!(regen < (1 << 14), "regen_size too large for 4-byte header");
-    debug_assert!(comp < (1 << 14), "comp_size too large for 4-byte header");
+    let mut out;
 
-    let mut out = Vec::with_capacity(4 + comp);
-    // sf=2: bits [3:2] = 0b10, type=2: bits[1:0]=0b10 → byte0 base = 0x0A
-    out.push(0x0A | (((regen & 0xF) << 4) as u8));
-    out.push(((regen >> 4) & 0xFF) as u8);
-    out.push((((regen >> 12) & 0x3) | ((comp & 0x3F) << 2)) as u8);
-    out.push(((comp >> 6) & 0xFF) as u8);
+    if regen < (1 << 14) && comp < (1 << 14) {
+        out = Vec::with_capacity(4 + comp);
+        // sf=2: bits [3:2] = 0b10, type=2: bits[1:0]=0b10 → byte0 base = 0x0A
+        out.push(0x0A | (((regen & 0xF) << 4) as u8));
+        out.push(((regen >> 4) & 0xFF) as u8);
+        out.push((((regen >> 12) & 0x3) | ((comp & 0x3F) << 2)) as u8);
+        out.push(((comp >> 6) & 0xFF) as u8);
+    } else {
+        debug_assert!(regen < (1 << 18), "regen_size too large for 5-byte header");
+        debug_assert!(comp < (1 << 18), "comp_size too large for 5-byte header");
+
+        out = Vec::with_capacity(5 + comp);
+        // sf=3: bits [3:2] = 0b11, type=2: bits[1:0]=0b10 → byte0 base = 0x0E
+        out.push(0x0E | (((regen & 0xF) << 4) as u8));
+        out.push(((regen >> 4) & 0xFF) as u8);
+        out.push((((regen >> 12) & 0x3F) | ((comp & 0x3) << 6)) as u8);
+        out.push(((comp >> 2) & 0xFF) as u8);
+        out.push(((comp >> 10) & 0xFF) as u8);
+    }
+
     out.extend_from_slice(huff_header);
     out.extend_from_slice(encoded);
     Ok(out)

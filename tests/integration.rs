@@ -20,6 +20,10 @@ fn roundtrip(data: &[u8], level: i32) {
     );
 }
 
+fn benchmark_repetitive_corpus(size: usize) -> Vec<u8> {
+    b"the quick brown fox jumps over the lazy dog. ".repeat(size / 45 + 1)[..size].to_vec()
+}
+
 // ── Empty / trivial ──────────────────────────────────────────────────────────
 
 #[test]
@@ -56,6 +60,12 @@ fn roundtrip_lorem_ipsum() {
 fn roundtrip_repeated_text() {
     let text = b"hello world! ".repeat(500);
     roundtrip(&text, 3);
+}
+
+#[test]
+fn roundtrip_benchmark_repetitive_16k() {
+    let data = benchmark_repetitive_corpus(16 * 1024);
+    roundtrip(&data, 3);
 }
 
 // ── Binary patterns ──────────────────────────────────────────────────────────
