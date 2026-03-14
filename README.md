@@ -69,6 +69,57 @@ cargo test
 
 Tests skip gracefully (with a message) if `zstd` is not found in `PATH`.
 
+## Profiling
+
+Profiling is opt-in and has no runtime impact on normal builds. The repo exposes:
+
+- a `profiling` Cargo feature that compiles in CPU sampling support
+- a `profiling` Cargo profile that keeps release-like optimization while preserving symbols
+
+### Command profiling
+
+Build with profiling support, then pass `--profile-cpu` before the subcommand:
+
+```bash
+cargo run --profile profiling --features profiling -- \
+  --profile-cpu profiles/compress.svg \
+  --profile-repeat 200 \
+  compress 3 input.txt output.zst
+```
+
+The generated file is an SVG flamegraph. `--profile-repeat` reruns the in-memory
+compression or decompression workload before writing the final output once, which
+is useful when a single command is too short-lived to collect samples. The same
+profile capture also writes:
+
+- `*.folded` — folded stack samples in plain text
+- `*.summary.txt` — a compact textual summary with top leaf symbols, top inclusive symbols, and top stacks
+
+### Test profiling
+
+Set `ZSTD_RS_PROFILE_TESTS` to an output directory. Each integration test writes its
+own profile artifacts as `<test-name>.svg`, `<test-name>.folded`, and
+`<test-name>.summary.txt`:
+
+```bash
+mkdir -p profiles/tests
+ZSTD_RS_PROFILE_TESTS=profiles/tests \
+  cargo test --profile profiling --features profiling --test integration -- --nocapture
+```
+
+### Benchmark profiling
+
+Set `ZSTD_RS_PROFILE_BENCHES=1` to enable Criterion's `pprof` profiler:
+
+```bash
+ZSTD_RS_PROFILE_BENCHES=1 \
+  cargo bench --profile profiling --features profiling
+```
+
+When that env var is not set, benches run exactly as before.
+When it is set, each benchmark profile directory gets `flamegraph.svg`,
+`flamegraph.folded`, and `flamegraph.summary.txt`.
+
 ## Architecture
 
 ```

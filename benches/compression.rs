@@ -20,8 +20,84 @@
 //! across all corpus types and levels.  This makes the speed/ratio tradeoff
 //! immediately visible in the same run.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::env;
+#[cfg(feature = "profiling")]
+use std::path::Path;
+
+use criterion::profiler::Profiler;
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+#[cfg(feature = "profiling")]
 use zstd_rs::{compress, decompress};
+
+const BENCHES_ENV_VAR: &str = "ZSTD_RS_PROFILE_BENCHES";
+
+fn criterion_config() -> Criterion {
+    let criterion = Criterion::default();
+
+    #[cfg(feature = "profiling")]
+    {
+        if profiling_enabled() {
+            return criterion.with_profiler(BenchProfiler::new(100));
+        }
+    }
+
+    criterion
+}
+
+fn profiling_enabled() -> bool {
+    match env::var(BENCHES_ENV_VAR) {
+        Ok(value) => {
+            let value = value.trim();
+            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+        }
+        Err(env::VarError::NotPresent) => false,
+        Err(err) => {
+            eprintln!("failed to read {BENCHES_ENV_VAR}: {err}");
+            false
+        }
+    }
+}
+
+#[cfg(feature = "profiling")]
+struct BenchProfiler {
+    frequency: i32,
+    active_profiler: Option<pprof::ProfilerGuard<'static>>,
+}
+
+#[cfg(feature = "profiling")]
+impl BenchProfiler {
+    fn new(frequency: i32) -> Self {
+        Self {
+            frequency,
+            active_profiler: None,
+        }
+    }
+}
+
+#[cfg(feature = "profiling")]
+impl Profiler for BenchProfiler {
+    fn start_profiling(&mut self, _benchmark_id: &str, _benchmark_dir: &Path) {
+        self.active_profiler = Some(
+            pprof::ProfilerGuard::new(self.frequency).expect("failed to start benchmark profiler"),
+        );
+    }
+
+    fn stop_profiling(&mut self, _benchmark_id: &str, benchmark_dir: &Path) {
+        std::fs::create_dir_all(benchmark_dir).expect("failed to create benchmark profile dir");
+
+        if let Some(profiler) = self.active_profiler.take() {
+            let report = profiler
+                .report()
+                .build()
+                .expect("failed to build benchmark profile report");
+            zstd_rs::profiling::write_report_outputs(
+                &report,
+                &benchmark_dir.join("flamegraph.svg"),
+            )
+            .expect("failed to write benchmark profile artifacts");
+        }
+    }
+}
 
 // ── Corpus generators ────────────────────────────────────────────────────────
 
@@ -94,10 +170,15 @@ fn ratio_table(c: &mut Criterion) {
     // Build and print the table to stderr (visible during `cargo bench`).
     eprintln!();
     eprintln!("┌─────────────────────────────────────────────────────────────────────────────┐");
-    eprintln!("│ Compression ratio  ({} KiB input, smaller % → better)                    │", SIZE / 1024);
+    eprintln!(
+        "│ Compression ratio  ({} KiB input, smaller % → better)                    │",
+        SIZE / 1024
+    );
     eprintln!("├──────────────────────┬──────────────────────────────────────────────────────┤");
-    eprint!  ("│ {:<20} │", "corpus");
-    for &lvl in LEVELS { eprint!(" L{:<5}", lvl); }
+    eprint!("│ {:<20} │", "corpus");
+    for &lvl in LEVELS {
+        eprint!(" L{:<5}", lvl);
+    }
     eprintln!(" │");
     eprintln!("├──────────────────────┼──────────────────────────────────────────────────────┤");
 
@@ -115,10 +196,15 @@ fn ratio_table(c: &mut Criterion) {
 
     // Print a second table: absolute compressed sizes in bytes.
     eprintln!("┌─────────────────────────────────────────────────────────────────────────────┐");
-    eprintln!("│ Compressed size in bytes  ({} KiB input)                                  │", SIZE / 1024);
+    eprintln!(
+        "│ Compressed size in bytes  ({} KiB input)                                  │",
+        SIZE / 1024
+    );
     eprintln!("├──────────────────────┬──────────────────────────────────────────────────────┤");
-    eprint!  ("│ {:<20} │", "corpus");
-    for &lvl in LEVELS { eprint!(" L{:<7}", lvl); }
+    eprint!("│ {:<20} │", "corpus");
+    for &lvl in LEVELS {
+        eprint!(" L{:<7}", lvl);
+    }
     eprintln!("│");
     eprintln!("├──────────────────────┼──────────────────────────────────────────────────────┤");
 
@@ -134,7 +220,9 @@ fn ratio_table(c: &mut Criterion) {
     eprintln!();
 
     // Register a trivial timing entry so this shows up in the Criterion report.
-    c.bench_function("ratio_table/64KiB_all_levels", |b| b.iter(|| black_box(0u8)));
+    c.bench_function("ratio_table/64KiB_all_levels", |b| {
+        b.iter(|| black_box(0u8))
+    });
 }
 
 // ── Level sweep: speed × ratio across all levels ─────────────────────────────
@@ -153,11 +241,9 @@ fn bench_level_sweep(c: &mut Criterion) {
 
     for (corpus_name, bytes) in &data {
         for &lvl in LEVELS {
-            group.bench_with_input(
-                BenchmarkId::new(*corpus_name, lvl),
-                bytes,
-                |b, d| b.iter(|| compress(black_box(d), lvl).unwrap()),
-            );
+            group.bench_with_input(BenchmarkId::new(*corpus_name, lvl), bytes, |b, d| {
+                b.iter(|| compress(black_box(d), lvl).unwrap())
+            });
         }
     }
     group.finish();
@@ -172,25 +258,19 @@ fn bench_compress_size_scaling(c: &mut Criterion) {
     for size in [1024usize, 4 * 1024, 16 * 1024, 64 * 1024, 256 * 1024] {
         let rep = corpus_repetitive(size);
         group.throughput(Throughput::Bytes(size as u64));
-        group.bench_with_input(
-            BenchmarkId::new("repetitive", size),
-            &rep,
-            |b, d| b.iter(|| compress(black_box(d), LEVEL).unwrap()),
-        );
+        group.bench_with_input(BenchmarkId::new("repetitive", size), &rep, |b, d| {
+            b.iter(|| compress(black_box(d), LEVEL).unwrap())
+        });
 
         let rnd = corpus_random(size);
-        group.bench_with_input(
-            BenchmarkId::new("random", size),
-            &rnd,
-            |b, d| b.iter(|| compress(black_box(d), LEVEL).unwrap()),
-        );
+        group.bench_with_input(BenchmarkId::new("random", size), &rnd, |b, d| {
+            b.iter(|| compress(black_box(d), LEVEL).unwrap())
+        });
 
         let bin = corpus_binary_structured(size);
-        group.bench_with_input(
-            BenchmarkId::new("binary_structured", size),
-            &bin,
-            |b, d| b.iter(|| compress(black_box(d), LEVEL).unwrap()),
-        );
+        group.bench_with_input(BenchmarkId::new("binary_structured", size), &bin, |b, d| {
+            b.iter(|| compress(black_box(d), LEVEL).unwrap())
+        });
     }
     group.finish();
 }
@@ -212,11 +292,9 @@ fn bench_decompress(c: &mut Criterion) {
 
         let rnd = corpus_random(size);
         let compressed_rnd = compress(&rnd, 1).unwrap();
-        group.bench_with_input(
-            BenchmarkId::new("random", size),
-            &compressed_rnd,
-            |b, c| b.iter(|| decompress(black_box(c)).unwrap()),
-        );
+        group.bench_with_input(BenchmarkId::new("random", size), &compressed_rnd, |b, c| {
+            b.iter(|| decompress(black_box(c)).unwrap())
+        });
     }
     group.finish();
 }
@@ -247,12 +325,14 @@ fn bench_roundtrip(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    ratio_table,
-    bench_level_sweep,
-    bench_compress_size_scaling,
-    bench_decompress,
-    bench_roundtrip,
-);
+criterion_group! {
+    name = benches;
+    config = criterion_config();
+    targets =
+        ratio_table,
+        bench_level_sweep,
+        bench_compress_size_scaling,
+        bench_decompress,
+        bench_roundtrip
+}
 criterion_main!(benches);

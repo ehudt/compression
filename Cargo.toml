@@ -6,6 +6,10 @@ description = "A from-scratch implementation of the Zstandard (zstd) compression
 license = "MIT"
 authors = ["zstd_rs contributors"]
 
+[features]
+default = []
+profiling = ["dep:pprof"]
+
 [[bench]]
 name = "compression"
 harness = false
@@ -15,8 +19,14 @@ name = "zstd_rs"
 path = "src/main.rs"
 
 [dependencies]
+pprof = { version = "0.14", optional = true, features = ["criterion", "flamegraph"] }
 thiserror = "2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = "none"

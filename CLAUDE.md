@@ -30,6 +30,8 @@ cargo bench              # Criterion benchmarks (speed + ratio)
 cargo run --example basic       # demo
 cargo run --bin zstd_rs -- compress 3 input.txt out.zst
 cargo run --bin zstd_rs -- decompress out.zst result.txt
+cargo test --features profiling  # verifies the profiling-gated build path
+cargo bench --features profiling --no-run  # compiles Criterion + pprof integration
 ```
 
 ### Acceptance tests
@@ -59,6 +61,23 @@ than failing, so the suite remains usable in environments without the tool.
 Tests must pass before committing.  The project has zero warnings in the
 default configuration; do not introduce new warnings.
 
+### Profiling workflow
+
+Profiling is opt-in and must not change behavior or add runtime overhead when
+disabled.
+
+- Build profiling support with `--features profiling`.
+- Use `cargo run --profile profiling --features profiling -- --profile-cpu out.svg --profile-repeat 200 compress 3 input out.zst`
+  or the same flag pair with `decompress`.
+- `--profile-repeat` exists because a single CLI invocation may be too short to
+  accumulate enough samples for a useful flamegraph.
+- Integration tests can emit one SVG per test when
+  `ZSTD_RS_PROFILE_TESTS=/path/to/dir` is set.
+- Criterion benchmarks enable `pprof` only when
+  `ZSTD_RS_PROFILE_BENCHES=1` is set; plain `cargo bench` stays unchanged.
+- Every profile capture also writes textual companions:
+  `*.folded` for folded stacks and `*.summary.txt` for an agent-friendly summary.
+
 ---
 
 ## Repository layout
@@ -67,6 +86,7 @@ default configuration; do not introduce new warnings.
 src/
   lib.rs                 Public API (compress / decompress / compress_bound)
   main.rs                CLI binary
+  profiling.rs           Optional pprof session wrapper for CLI/tests
   error.rs               ZstdError enum — all error variants live here
   xxhash.rs              XXHash-32 content checksum
   frame.rs               Frame encoder + decoder (outermost layer)

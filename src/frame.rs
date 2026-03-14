@@ -9,8 +9,8 @@
 //! - <https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md#frame-concatenation>
 
 use crate::decoder::decode_block;
-use crate::encoder::block::encode_block;
 use crate::encoder::MatchConfig;
+use crate::encoder::block::encode_block;
 use crate::error::{Result, ZstdError};
 use crate::xxhash::xxhash32;
 
@@ -75,7 +75,8 @@ pub fn compress_with_config(
         let block_size = payload.len();
         // Block header: 3 bytes, little-endian
         // [last:1][type:2][size:21]
-        let header_val: u32 = ((is_last as u32) | ((block_type as u32) << 1) | ((block_size as u32) << 3)) as u32;
+        let header_val: u32 =
+            ((is_last as u32) | ((block_type as u32) << 1) | ((block_size as u32) << 3)) as u32;
         out.extend_from_slice(&header_val.to_le_bytes()[..3]);
         out.extend_from_slice(payload);
 
