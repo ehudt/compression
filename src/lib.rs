@@ -41,6 +41,7 @@ pub mod error;
 pub mod frame;
 pub mod fse;
 pub mod huffman;
+pub mod profiling;
 pub mod tables;
 pub mod xxhash;
 
