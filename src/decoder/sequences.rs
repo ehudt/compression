@@ -360,62 +360,15 @@ pub fn execute_sequences(
 #[cfg(test)]
 mod debug_tests {
     use super::*;
-    use crate::fse::BitReader;
-    use crate::tables::sequences::*;
 
     #[test]
-    fn inspect_predefined_tables() {
-        let ll_table = build_decode_table(&LITERALS_LENGTH_DEFAULT_NORM.to_vec(), LITERALS_LENGTH_DEFAULT_ACCURACY).unwrap();
-        let of_table = build_decode_table(&OFFSET_DEFAULT_NORM.to_vec(), OFFSET_DEFAULT_ACCURACY).unwrap();
-        let ml_table = build_decode_table(&MATCH_LENGTH_DEFAULT_NORM.to_vec(), MATCH_LENGTH_DEFAULT_ACCURACY).unwrap();
-
-        // States from the level9 bitstream (ll=14, of=10, ml=44)
-        eprintln!("LL[14] = sym={} nb={} base={}", ll_table.table[14].symbol, ll_table.table[14].num_bits, ll_table.table[14].base_line);
-        eprintln!("OF[10] = sym={} nb={} base={}", of_table.table[10].symbol, of_table.table[10].num_bits, of_table.table[10].base_line);
-        eprintln!("ML[44] = sym={} nb={} base={}", ml_table.table[44].symbol, ml_table.table[44].num_bits, ml_table.table[44].base_line);
-
-        // Print all table entries
-        eprintln!("=== LL table ===");
-        for (i, e) in ll_table.table.iter().enumerate() {
-            eprintln!("  LL[{:2}] sym={:2} nb={} base={:2}", i, e.symbol, e.num_bits, e.base_line);
-        }
-        eprintln!("=== OF table ===");
-        for (i, e) in of_table.table.iter().enumerate() {
-            eprintln!("  OF[{:2}] sym={:2} nb={} base={:2}", i, e.symbol, e.num_bits, e.base_line);
-        }
-        eprintln!("=== ML table ===");
-        for (i, e) in ml_table.table.iter().enumerate() {
-            eprintln!("  ML[{:2}] sym={:2} nb={} base={:2}", i, e.symbol, e.num_bits, e.base_line);
-        }
-    }
-
-    #[test]
-    fn decode_level9_bitstream() {
-        // The actual level9 bitstream for repetitive_text(32768)
-        // 2 sequences, predefined tables
-        let seq_section = &[0x02u8, 0x00, 0xd0, 0x3f, 0x54, 0x8b, 0x16, 0xac, 0x72, 0x02];
-        match decode_sequences(seq_section) {
-            Ok((seqs, _)) => {
-                for (i, seq) in seqs.iter().enumerate() {
-                    eprintln!("Seq {}: ll={}, ml={}, offset={}", i, seq.literal_length, seq.match_length, seq.offset);
-                }
-            }
-            Err(e) => eprintln!("ERROR: {}", e),
-        }
-    }
-
-    #[test]
-    fn debug_reference_bitstream() {
+    fn decode_reference_bitstream() {
         // Reference bitstream for "hello world " * 100 compressed at level 1
         // Expected: ll=12, ml=1188, offset=12
         let seq_section = &[0x01u8, 0x00, 0xa1, 0xfc, 0x2f, 0x49];
-        
+
         let (seqs, _) = decode_sequences(seq_section).expect("decode failed");
-        
-        for (i, seq) in seqs.iter().enumerate() {
-            eprintln!("Seq {}: ll={}, ml={}, offset={}", i, seq.literal_length, seq.match_length, seq.offset);
-        }
-        
+
         assert_eq!(seqs.len(), 1);
         assert_eq!(seqs[0].literal_length, 12, "literal_length mismatch");
         assert_eq!(seqs[0].match_length, 1188, "match_length mismatch");
