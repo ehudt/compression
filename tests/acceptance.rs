@@ -27,7 +27,12 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Returns a unique path in the system temp directory with the given suffix.
 fn tmp_path(suffix: &str) -> PathBuf {
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("zstd_rs_accept_{}_{}{}", std::process::id(), id, suffix))
+    std::env::temp_dir().join(format!(
+        "zstd_rs_accept_{}_{}{}",
+        std::process::id(),
+        id,
+        suffix
+    ))
 }
 
 /// RAII guard that deletes a file when dropped, even on panic.
@@ -58,7 +63,11 @@ fn require_zstd() -> Option<&'static str> {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
-    if ok { None } else { Some("zstd binary not found in PATH — skipping acceptance tests") }
+    if ok {
+        None
+    } else {
+        Some("zstd binary not found in PATH — skipping acceptance tests")
+    }
 }
 
 /// Compress `data` with our library at `level`, then decompress with `zstd -d`
@@ -73,8 +82,7 @@ fn check_our_compress_system_decompress(data: &[u8], level: i32) {
         .unwrap_or_else(|e| panic!("our compress failed at level {level}: {e}"));
 
     let zst = TempFile::new(".zst");
-    std::fs::write(zst.path(), &compressed)
-        .expect("failed to write temp compressed file");
+    std::fs::write(zst.path(), &compressed).expect("failed to write temp compressed file");
 
     let out = Command::new("zstd")
         .args(["-d", "--stdout", "--no-progress"])
@@ -107,8 +115,7 @@ fn check_system_compress_our_decompress(data: &[u8], level: i32) {
 
     let raw = TempFile::new(".bin");
     let zst = TempFile::new(".bin.zst");
-    std::fs::write(raw.path(), data)
-        .expect("failed to write temp input file");
+    std::fs::write(raw.path(), data).expect("failed to write temp input file");
 
     // zstd levels 20-22 need --ultra
     let mut cmd = Command::new("zstd");
@@ -117,7 +124,8 @@ fn check_system_compress_our_decompress(data: &[u8], level: i32) {
         cmd.arg("--ultra");
     }
     cmd.arg(format!("-{level}"))
-        .arg("-o").arg(zst.path())
+        .arg("-o")
+        .arg(zst.path())
         .arg(raw.path());
 
     let status = cmd.status().expect("failed to spawn zstd");
@@ -127,8 +135,8 @@ fn check_system_compress_our_decompress(data: &[u8], level: i32) {
         data.len(),
     );
 
-    let compressed = std::fs::read(zst.path())
-        .expect("failed to read zst file after zstd compression");
+    let compressed =
+        std::fs::read(zst.path()).expect("failed to read zst file after zstd compression");
 
     let decompressed = decompress(&compressed)
         .unwrap_or_else(|e| panic!("our decompress failed for zstd-level-{level} output: {e}"));

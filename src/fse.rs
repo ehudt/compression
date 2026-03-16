@@ -324,7 +324,12 @@ impl<'a> BitReader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         let n = data.len();
         if n == 0 {
-            return Self { data, ptr: 0, bit_container: 0, bits_consumed: 64 };
+            return Self {
+                data,
+                ptr: 0,
+                bit_container: 0,
+                bits_consumed: 64,
+            };
         }
 
         let (ptr, bit_container) = if n >= 8 {
@@ -342,7 +347,12 @@ impl<'a> BitReader<'a> {
         // Sentinel = highest set bit.  Consume it and all zero bits above it.
         let bits_consumed = 1 + bit_container.leading_zeros();
 
-        Self { data, ptr, bit_container, bits_consumed }
+        Self {
+            data,
+            ptr,
+            bit_container,
+            bits_consumed,
+        }
     }
 
     /// Reload the window: move ptr backward so that sub-byte alignment is
@@ -445,15 +455,15 @@ mod tests {
         // BitWriter accumulates bits LSB-first; BitReader reads MSB-first.
         // So the decoder reads in the reverse order of writes.
         let mut w = BitWriter::new();
-        w.write_bits(0b11, 2);   // written first → lowest bits → read last
+        w.write_bits(0b11, 2); // written first → lowest bits → read last
         w.write_bits(0b1101, 4); // written second → middle bits
-        w.write_bits(0b101, 3);  // written last → highest bits → read first
+        w.write_bits(0b101, 3); // written last → highest bits → read first
         let data = w.finish();
 
         let mut r = BitReader::new(&data);
-        assert_eq!(r.read_bits(3), 0b101);  // reads highest bits first
+        assert_eq!(r.read_bits(3), 0b101); // reads highest bits first
         assert_eq!(r.read_bits(4), 0b1101);
-        assert_eq!(r.read_bits(2), 0b11);   // reads lowest bits last
+        assert_eq!(r.read_bits(2), 0b11); // reads lowest bits last
     }
 
     #[test]

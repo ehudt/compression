@@ -39,7 +39,8 @@ cargo run --bin zstd_rs -- decompress output.zst result.txt
 
 ```bash
 cargo test              # Unit + integration tests
-cargo bench             # Criterion benchmarks
+cargo bench             # Fast Criterion benchmarks (speed + ratio)
+ZSTD_RS_FULL_BENCHES=1 cargo bench  # Exhaustive all-level benchmark sweep
 cargo run --example basic
 ```
 
@@ -84,16 +85,28 @@ Build with profiling support, then pass `--profile-cpu` before the subcommand:
 cargo run --profile profiling --features profiling -- \
   --profile-cpu profiles/compress.svg \
   --profile-repeat 200 \
+  --profile-min-ms 500 \
+  --profile-hz 1000 \
   compress 3 input.txt output.zst
 ```
 
-The generated file is an SVG flamegraph. `--profile-repeat` reruns the in-memory
-compression or decompression workload before writing the final output once, which
-is useful when a single command is too short-lived to collect samples. The same
-profile capture also writes:
+The generated file is an SVG flamegraph. When `--profile-cpu` is enabled, the
+CLI behaves more like a microbenchmark harness:
+
+- it runs one unprofiled warmup iteration first
+- it profiles only the steady-state in-memory loop
+- it keeps running until both `--profile-repeat` and `--profile-min-ms` are satisfied
+
+The final output file is still written only once, from the last measured
+iteration. The same profile capture also writes:
 
 - `*.folded` — folded stack samples in plain text
 - `*.summary.txt` — a compact textual summary with top leaf symbols, top inclusive symbols, and top stacks
+
+The default sampling rate is `1000 Hz`. On very small inputs, `--profile-min-ms`
+and `--profile-hz` are often the simplest knobs to turn. If a capture is too
+sparse to be useful, the CLI emits a warning and the summary file records it
+explicitly.
 
 ### Test profiling
 
@@ -116,7 +129,22 @@ ZSTD_RS_PROFILE_BENCHES=1 \
   cargo bench --profile profiling --features profiling
 ```
 
-When that env var is not set, benches run exactly as before.
+By default, `cargo bench` runs a reduced representative suite over levels
+`1, 3, 9, 19, 22` and prints a compression-ratio summary for the timed cases.
+Set `ZSTD_RS_FULL_BENCHES=1` to run the exhaustive `1..=22` sweep instead:
+
+```bash
+ZSTD_RS_FULL_BENCHES=1 cargo bench
+```
+
+You can combine both env vars:
+
+```bash
+ZSTD_RS_PROFILE_BENCHES=1 ZSTD_RS_FULL_BENCHES=1 \
+  cargo bench --profile profiling --features profiling
+```
+
+When `ZSTD_RS_PROFILE_BENCHES` is not set, benches run without `pprof`.
 When it is set, each benchmark profile directory gets `flamegraph.svg`,
 `flamegraph.folded`, and `flamegraph.summary.txt`.
 

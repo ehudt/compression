@@ -40,7 +40,8 @@ fn xxhash64(data: &[u8], seed: u64) -> u64 {
             input = &input[32..];
         }
 
-        h64 = v1.rotate_left(1)
+        h64 = v1
+            .rotate_left(1)
             .wrapping_add(v2.rotate_left(7))
             .wrapping_add(v3.rotate_left(12))
             .wrapping_add(v4.rotate_left(18));
@@ -59,7 +60,10 @@ fn xxhash64(data: &[u8], seed: u64) -> u64 {
     while input.len() >= 8 {
         let k = round64(0, read_u64_le(input, 0));
         h64 ^= k;
-        h64 = h64.rotate_left(27).wrapping_mul(PRIME64_1).wrapping_add(PRIME64_4);
+        h64 = h64
+            .rotate_left(27)
+            .wrapping_mul(PRIME64_1)
+            .wrapping_add(PRIME64_4);
         input = &input[8..];
     }
 
@@ -67,7 +71,10 @@ fn xxhash64(data: &[u8], seed: u64) -> u64 {
     if input.len() >= 4 {
         let k = read_u32_le(input, 0) as u64;
         h64 ^= k.wrapping_mul(PRIME64_1);
-        h64 = h64.rotate_left(23).wrapping_mul(PRIME64_2).wrapping_add(PRIME64_3);
+        h64 = h64
+            .rotate_left(23)
+            .wrapping_mul(PRIME64_2)
+            .wrapping_add(PRIME64_3);
         input = &input[4..];
     }
 

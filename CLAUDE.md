@@ -26,7 +26,8 @@ cargo build              # compile library + binary
 cargo test               # unit tests + integration tests + doctests (must all pass)
 cargo test --test integration  # integration tests only
 cargo test --test acceptance   # interoperability tests against system zstd (see below)
-cargo bench              # Criterion benchmarks (speed + ratio)
+cargo bench              # Fast Criterion benchmarks (speed + ratio)
+ZSTD_RS_FULL_BENCHES=1 cargo bench  # exhaustive all-level benchmark sweep
 cargo run --example basic       # demo
 cargo run --bin zstd_rs -- compress 3 input.txt out.zst
 cargo run --bin zstd_rs -- decompress out.zst result.txt
@@ -67,14 +68,18 @@ Profiling is opt-in and must not change behavior or add runtime overhead when
 disabled.
 
 - Build profiling support with `--features profiling`.
-- Use `cargo run --profile profiling --features profiling -- --profile-cpu out.svg --profile-repeat 200 compress 3 input out.zst`
+- Use `cargo run --profile profiling --features profiling -- --profile-cpu out.svg --profile-repeat 200 --profile-min-ms 500 compress 3 input out.zst`
   or the same flag pair with `decompress`.
-- `--profile-repeat` exists because a single CLI invocation may be too short to
-  accumulate enough samples for a useful flamegraph.
+- CLI profiling runs one unprofiled warmup iteration first, then samples only
+  the steady-state in-memory loop until both the repeat count and minimum
+  duration target are satisfied.
 - Integration tests can emit one SVG per test when
   `ZSTD_RS_PROFILE_TESTS=/path/to/dir` is set.
 - Criterion benchmarks enable `pprof` only when
-  `ZSTD_RS_PROFILE_BENCHES=1` is set; plain `cargo bench` stays unchanged.
+  `ZSTD_RS_PROFILE_BENCHES=1` is set.
+- Plain `cargo bench` runs the reduced representative suite over levels
+  `1, 3, 9, 19, 22`; set `ZSTD_RS_FULL_BENCHES=1` for the exhaustive
+  `1..=22` sweep.
 - Every profile capture also writes textual companions:
   `*.folded` for folded stacks and `*.summary.txt` for an agent-friendly summary.
 
@@ -106,7 +111,7 @@ src/
 tests/
   integration.rs         23 end-to-end round-trip and error-case tests
 benches/
-  compression.rs         Criterion speed benchmarks + compression-ratio tests
+  compression.rs         Criterion speed benchmarks + ratio summary, fast/full modes
 examples/
   basic.rs               Simple compress/decompress demo
 ```

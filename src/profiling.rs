@@ -3,6 +3,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub const TESTS_ENV_VAR: &str = "ZSTD_RS_PROFILE_TESTS";
+pub const DEFAULT_PROFILE_FREQUENCY_HZ: i32 = 1_000;
+#[cfg(feature = "profiling")]
+const MIN_USEFUL_SAMPLE_COUNT: usize = 50;
 
 pub struct ProfileSession {
     #[cfg_attr(not(feature = "profiling"), allow(dead_code))]
@@ -35,11 +38,11 @@ impl ProfileSession {
         }
     }
 
-    pub fn from_output_path(path: impl Into<PathBuf>) -> Result<Self, String> {
+    pub fn from_output_path(path: impl Into<PathBuf>, frequency_hz: i32) -> Result<Self, String> {
         #[cfg(feature = "profiling")]
         {
             let output_path = path.into();
-            let guard = pprof::ProfilerGuard::new(100)
+            let guard = pprof::ProfilerGuard::new(frequency_hz)
                 .map_err(|err| format!("profiling setup failed: {err}"))?;
             Ok(Self {
                 inner: Inner::Active(ActiveProfileSession { guard, output_path }),
@@ -48,7 +51,7 @@ impl ProfileSession {
 
         #[cfg(not(feature = "profiling"))]
         {
-            let _ = path.into();
+            let _ = (path.into(), frequency_hz);
             Err("profiling support is not compiled in; rebuild with `--features profiling`".into())
         }
     }
@@ -57,7 +60,10 @@ impl ProfileSession {
         match std::env::var(TESTS_ENV_VAR) {
             Ok(dir) if !dir.trim().is_empty() => {
                 let file_name = format!("{}.svg", sanitize_label(test_name));
-                Self::from_output_path(Path::new(&dir).join(file_name))
+                Self::from_output_path(
+                    Path::new(&dir).join(file_name),
+                    DEFAULT_PROFILE_FREQUENCY_HZ,
+                )
             }
             Ok(_) => Ok(Self::disabled()),
             Err(std::env::VarError::NotPresent) => Ok(Self::disabled()),
@@ -98,6 +104,7 @@ pub fn write_report_outputs(
     output_path: &Path,
 ) -> Result<ProfileArtifacts, String> {
     let artifacts = profile_artifacts(output_path);
+    let sample_count = total_samples(report);
 
     for path in [
         &artifacts.svg_path,
@@ -127,6 +134,10 @@ pub fn write_report_outputs(
             artifacts.summary_path.display()
         )
     })?;
+
+    if let Some(warning) = sparse_profile_warning(sample_count, report.timing.frequency) {
+        eprintln!("warning: {warning} ({})", artifacts.summary_path.display());
+    }
 
     Ok(artifacts)
 }
@@ -175,8 +186,7 @@ fn render_folded_stacks(report: &pprof::Report) -> String {
 
 #[cfg(feature = "profiling")]
 fn render_summary(report: &pprof::Report) -> String {
-    let total_samples: isize = report.data.values().copied().sum();
-    let total_samples = total_samples.max(0) as usize;
+    let total_samples = total_samples(report);
     let mut inclusive: HashMap<String, isize> = HashMap::new();
     let mut leaf: HashMap<String, isize> = HashMap::new();
     let mut stacks: Vec<(String, isize)> = Vec::new();
@@ -205,6 +215,9 @@ fn render_summary(report: &pprof::Report) -> String {
         report.timing.duration.as_secs_f64() * 1000.0
     ));
     output.push_str(&format!("unique_stacks: {}\n", report.data.len()));
+    if let Some(warning) = sparse_profile_warning(total_samples, report.timing.frequency) {
+        output.push_str(&format!("warning: {warning}\n"));
+    }
 
     append_ranked_section(&mut output, "Top leaf symbols", &leaf, total_samples, 15);
     append_ranked_section(
@@ -217,6 +230,23 @@ fn render_summary(report: &pprof::Report) -> String {
     append_ranked_stacks(&mut output, &stacks, total_samples, 15);
 
     output
+}
+
+#[cfg(feature = "profiling")]
+fn total_samples(report: &pprof::Report) -> usize {
+    let total_samples: isize = report.data.values().copied().sum();
+    total_samples.max(0) as usize
+}
+
+#[cfg(feature = "profiling")]
+fn sparse_profile_warning(total_samples: usize, frequency_hz: i32) -> Option<String> {
+    if total_samples >= MIN_USEFUL_SAMPLE_COUNT {
+        return None;
+    }
+
+    Some(format!(
+        "profile captured only {total_samples} samples at {frequency_hz} Hz; results are likely too sparse to trust. Increase --profile-repeat, use a larger input, or raise --profile-hz."
+    ))
 }
 
 #[cfg(feature = "profiling")]

@@ -1,35 +1,39 @@
 //! Benchmarks for zstd_rs compression and decompression.
 //!
 //! Run with: `cargo bench`
+//! Full sweep: `ZSTD_RS_FULL_BENCHES=1 cargo bench`
 //!
 //! # What is measured
 //!
 //! ## Speed (throughput)
 //! Criterion measures wall-clock time and reports throughput in MiB/s.
 //! Groups:
-//!   - `compress/level_sweep`   – all levels 1..22 on three corpus types (64 KiB)
+//!   - `compress/level_sweep`   – representative levels by default, all levels 1..22 in full mode
 //!   - `compress/size_scaling`  – level 3, input sizes 1 KiB–256 KiB
-//!   - `decompress`             – decompression throughput for repetitive and random data
+//!   - `decompress`             – decompression throughput for the same corpus/level cases
 //!   - `roundtrip`              – compress + decompress end-to-end
 //!
 //! ## Size (compression ratio)
 //! A non-timing pass (`ratio_table`) runs once per `cargo bench` invocation and
-//! prints a human-readable table to stderr showing:
+//! prints a human-readable table to stderr showing, for each timed case:
+//!   - corpus
+//!   - level
 //!   - compressed size in bytes
 //!   - ratio as a percentage of the original
-//! across all corpus types and levels.  This makes the speed/ratio tradeoff
-//! immediately visible in the same run.
+//! This makes the speed/ratio tradeoff immediately visible in the same run.
 
 use std::env;
 #[cfg(feature = "profiling")]
 use std::path::Path;
 
+#[cfg(feature = "profiling")]
 use criterion::profiler::Profiler;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-#[cfg(feature = "profiling")]
 use zstd_rs::{compress, decompress};
 
+#[cfg(feature = "profiling")]
 const BENCHES_ENV_VAR: &str = "ZSTD_RS_PROFILE_BENCHES";
+const FULL_BENCHES_ENV_VAR: &str = "ZSTD_RS_FULL_BENCHES";
 
 fn criterion_config() -> Criterion {
     let criterion = Criterion::default();
@@ -44,6 +48,7 @@ fn criterion_config() -> Criterion {
     criterion
 }
 
+#[cfg(feature = "profiling")]
 fn profiling_enabled() -> bool {
     match env::var(BENCHES_ENV_VAR) {
         Ok(value) => {
@@ -143,6 +148,80 @@ fn corpora(size: usize) -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
+fn compression_levels() -> impl Iterator<Item = i32> {
+    1..=22
+}
+
+fn default_levels() -> &'static [i32] {
+    &[1, 3, 9, 19, 22]
+}
+
+fn full_benchmarks_enabled() -> bool {
+    match env::var(FULL_BENCHES_ENV_VAR) {
+        Ok(value) => {
+            let value = value.trim();
+            !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+        }
+        Err(env::VarError::NotPresent) => false,
+        Err(err) => {
+            eprintln!("failed to read {FULL_BENCHES_ENV_VAR}: {err}");
+            false
+        }
+    }
+}
+
+fn active_levels() -> Vec<i32> {
+    if full_benchmarks_enabled() {
+        compression_levels().collect()
+    } else {
+        default_levels().to_vec()
+    }
+}
+
+struct BenchCase {
+    corpus_name: &'static str,
+    level: i32,
+    input: Vec<u8>,
+    compressed: Vec<u8>,
+}
+
+impl BenchCase {
+    fn benchmark_id(&self) -> BenchmarkId {
+        BenchmarkId::new(self.corpus_name, self.level)
+    }
+
+    fn input_len(&self) -> usize {
+        self.input.len()
+    }
+
+    fn compressed_len(&self) -> usize {
+        self.compressed.len()
+    }
+
+    fn ratio_percent(&self) -> f64 {
+        100.0 * self.compressed_len() as f64 / self.input_len() as f64
+    }
+}
+
+fn benchmark_cases(size: usize, levels: &[i32]) -> Vec<BenchCase> {
+    let data = corpora(size);
+    let mut cases = Vec::with_capacity(data.len() * levels.len());
+
+    for (corpus_name, bytes) in data {
+        for &level in levels {
+            let compressed = compress(&bytes, level).expect("compress failed");
+            cases.push(BenchCase {
+                corpus_name,
+                level,
+                input: bytes.clone(),
+                compressed,
+            });
+        }
+    }
+
+    cases
+}
+
 // ── Ratio table (size side of the tradeoff) ──────────────────────────────────
 
 /// Prints a compression-ratio table to stderr and registers a single trivial
@@ -150,73 +229,50 @@ fn corpora(size: usize) -> Vec<(&'static str, Vec<u8>)> {
 ///
 /// The table looks like:
 /// ```text
-/// ┌─────────────────────────────────────────────────────────────────────────────┐
-/// │ Compression ratio  (64 KiB input, smaller % is better)                     │
-/// ├──────────────────────┬───────────────────────────────────────────────────── │
-/// │ corpus               │  L1      L3      L6      L9     L12     L19     L22  │
-/// ├──────────────────────┼───────────────────────────────────────────────────── │
-/// │ all_zeros            │  0.1%    0.1%    0.1%    0.1%   0.1%    0.1%   0.1% │
-/// │ repetitive           │  5.2%    4.8%    4.7%    4.7%   4.7%    4.7%   4.7% │
-/// │ binary_structured    │ 42.3%   41.0%   40.8%   40.8%  40.8%   40.8%  40.8%│
-/// │ random               │ 99.8%   99.8%   99.8%   99.8%  99.8%   99.8%  99.8%│
-/// └──────────────────────┴───────────────────────────────────────────────────── ┘
+/// ┌──────────────────────────────────────────────────────────────────────────┐
+/// │ Compression ratio summary (64 KiB input, smaller % is better)           │
+/// ├──────────────────┬───────┬─────────────┬───────────┬────────────────────┤
+/// │ corpus           │ level │ input bytes │ compressed│ ratio              │
+/// ├──────────────────┼───────┼─────────────┼───────────┼────────────────────┤
+/// │ repetitive       │ 3     │       65536 │      3146 │   4.8%             │
+/// └──────────────────┴───────┴─────────────┴───────────┴────────────────────┘
 /// ```
 fn ratio_table(c: &mut Criterion) {
     const SIZE: usize = 64 * 1024;
-    const LEVELS: &[i32] = &[1, 3, 6, 9, 12, 19, 22];
-
-    let data = corpora(SIZE);
+    let levels = active_levels();
+    let cases = benchmark_cases(SIZE, &levels);
+    let mode_label = if full_benchmarks_enabled() {
+        "full"
+    } else {
+        "default"
+    };
 
     // Build and print the table to stderr (visible during `cargo bench`).
     eprintln!();
-    eprintln!("┌─────────────────────────────────────────────────────────────────────────────┐");
+    eprintln!("┌──────────────────────────────────────────────────────────────────────────────┐");
     eprintln!(
-        "│ Compression ratio  ({} KiB input, smaller % → better)                    │",
-        SIZE / 1024
+        "│ Compression ratio summary ({} KiB input, {} mode)                         │",
+        SIZE / 1024,
+        mode_label
     );
-    eprintln!("├──────────────────────┬──────────────────────────────────────────────────────┤");
-    eprint!("│ {:<20} │", "corpus");
-    for &lvl in LEVELS {
-        eprint!(" L{:<5}", lvl);
-    }
-    eprintln!(" │");
-    eprintln!("├──────────────────────┼──────────────────────────────────────────────────────┤");
-
-    for (name, bytes) in &data {
-        eprint!("│ {:<20} │", name);
-        for &lvl in LEVELS {
-            let compressed = compress(bytes, lvl).expect("compress failed");
-            let ratio = 100.0 * compressed.len() as f64 / SIZE as f64;
-            eprint!(" {:>5.1}%", ratio);
-        }
-        eprintln!(" │");
-    }
-    eprintln!("└──────────────────────┴──────────────────────────────────────────────────────┘");
-    eprintln!();
-
-    // Print a second table: absolute compressed sizes in bytes.
-    eprintln!("┌─────────────────────────────────────────────────────────────────────────────┐");
+    eprintln!("├──────────────────────┬───────┬─────────────┬────────────┬──────────┤");
     eprintln!(
-        "│ Compressed size in bytes  ({} KiB input)                                  │",
-        SIZE / 1024
+        "│ {:<20} │ {:>5} │ {:>11} │ {:>10} │ {:>8} │",
+        "corpus", "level", "input bytes", "compressed", "ratio"
     );
-    eprintln!("├──────────────────────┬──────────────────────────────────────────────────────┤");
-    eprint!("│ {:<20} │", "corpus");
-    for &lvl in LEVELS {
-        eprint!(" L{:<7}", lvl);
-    }
-    eprintln!("│");
-    eprintln!("├──────────────────────┼──────────────────────────────────────────────────────┤");
+    eprintln!("├──────────────────────┼───────┼─────────────┼────────────┼──────────┤");
 
-    for (name, bytes) in &data {
-        eprint!("│ {:<20} │", name);
-        for &lvl in LEVELS {
-            let compressed = compress(bytes, lvl).expect("compress failed");
-            eprint!(" {:>7}", compressed.len());
-        }
-        eprintln!(" │");
+    for case in &cases {
+        eprintln!(
+            "│ {:<20} │ {:>5} │ {:>11} │ {:>10} │ {:>7.1}% │",
+            case.corpus_name,
+            case.level,
+            case.input_len(),
+            case.compressed_len(),
+            case.ratio_percent()
+        );
     }
-    eprintln!("└──────────────────────┴──────────────────────────────────────────────────────┘");
+    eprintln!("└──────────────────────┴───────┴─────────────┴────────────┴──────────┘");
     eprintln!();
 
     // Register a trivial timing entry so this shows up in the Criterion report.
@@ -233,18 +289,15 @@ fn ratio_table(c: &mut Criterion) {
 /// worse is the ratio?
 fn bench_level_sweep(c: &mut Criterion) {
     const SIZE: usize = 64 * 1024;
-    const LEVELS: &[i32] = &[1, 3, 6, 9, 12, 19, 22];
-
-    let data = corpora(SIZE);
+    let levels = active_levels();
+    let cases = benchmark_cases(SIZE, &levels);
     let mut group = c.benchmark_group("compress/level_sweep");
     group.throughput(Throughput::Bytes(SIZE as u64));
 
-    for (corpus_name, bytes) in &data {
-        for &lvl in LEVELS {
-            group.bench_with_input(BenchmarkId::new(*corpus_name, lvl), bytes, |b, d| {
-                b.iter(|| compress(black_box(d), lvl).unwrap())
-            });
-        }
+    for case in &cases {
+        group.bench_with_input(case.benchmark_id(), &case.input, |b, input| {
+            b.iter(|| compress(black_box(input), case.level).unwrap())
+        });
     }
     group.finish();
 }
@@ -278,22 +331,15 @@ fn bench_compress_size_scaling(c: &mut Criterion) {
 // ── Decompression benchmarks ─────────────────────────────────────────────────
 
 fn bench_decompress(c: &mut Criterion) {
+    const SIZE: usize = 64 * 1024;
+    let levels = active_levels();
+    let cases = benchmark_cases(SIZE, &levels);
     let mut group = c.benchmark_group("decompress");
 
-    for size in [16 * 1024usize, 64 * 1024, 256 * 1024] {
-        let rep = corpus_repetitive(size);
-        let compressed_rep = compress(&rep, 3).unwrap();
-        group.throughput(Throughput::Bytes(size as u64));
-        group.bench_with_input(
-            BenchmarkId::new("repetitive", size),
-            &compressed_rep,
-            |b, c| b.iter(|| decompress(black_box(c)).unwrap()),
-        );
-
-        let rnd = corpus_random(size);
-        let compressed_rnd = compress(&rnd, 1).unwrap();
-        group.bench_with_input(BenchmarkId::new("random", size), &compressed_rnd, |b, c| {
-            b.iter(|| decompress(black_box(c)).unwrap())
+    for case in &cases {
+        group.throughput(Throughput::Bytes(case.input_len() as u64));
+        group.bench_with_input(case.benchmark_id(), &case.compressed, |b, compressed| {
+            b.iter(|| decompress(black_box(compressed)).unwrap())
         });
     }
     group.finish();

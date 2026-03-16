@@ -211,7 +211,14 @@ pub fn decompress(input: &[u8]) -> Result<Vec<u8>> {
 
         let history_start = output.len().saturating_sub(128 * 1024);
         let history = output[history_start..].to_vec();
-        decode_block(block_data, block_type, block_size, &history, &mut repeat_offsets, &mut output)?;
+        decode_block(
+            block_data,
+            block_type,
+            block_size,
+            &history,
+            &mut repeat_offsets,
+            &mut output,
+        )?;
 
         if last_block {
             break;
