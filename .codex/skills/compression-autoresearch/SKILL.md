@@ -1,0 +1,200 @@
+---
+name: compression-autoresearch
+description: Use when the goal is autonomous research on this repo's compression engine, especially to improve compression ratio and throughput through repeated code changes, fast Criterion benchmarks, targeted profiling, and correctness/interop gates.
+---
+
+# Compression Autoresearch
+
+Run an autonomous experiment loop for this repository's Rust zstd implementation. The research target is the two-way tradeoff that matters here:
+
+- Better compression ratio
+- Better throughput
+
+Never optimize one while silently breaking the other, and never keep a change that compromises frame correctness or interoperability.
+
+## Repo-Specific Scope
+
+Read these files before changing code:
+
+- `README.md` for the intended development loop and profiling commands
+- `benches/compression.rs` for the fast benchmark cases and full sweep mode
+- `tests/acceptance.rs` for the interop contract with the system `zstd`
+- `tests/integration.rs` for round-trip and sanity expectations
+
+Likely hot paths / leverage points:
+
+- `src/encoder/lz77.rs` for match finding
+- `src/encoder/block.rs` for block construction and sequence emission
+- `src/huffman.rs` and `src/fse.rs` for entropy coding
+- `src/frame.rs` for block/frame-level decisions
+- `src/decoder/*` only when a format or round-trip change requires it
+
+Do not start by editing the benchmark harness or tests unless the task is explicitly about measurement or missing coverage.
+
+## Setup
+
+1. Propose a fresh branch name of the form `autoresearch/<tag>` and create it from the current mainline.
+2. Confirm the worktree is otherwise clean enough to experiment safely.
+3. Create an untracked results file such as `results.tsv`. Do not commit it.
+4. Establish the baseline before making any code changes.
+
+Suggested TSV header:
+
+```tsv
+commit	status	ratio_notes	compress_notes	decompress_notes	roundtrip_notes	description
+```
+
+Free-form notes are acceptable because Criterion output is textual and case-based; do not force a fake single scalar if the data does not justify one.
+
+## Baseline Commands
+
+Run the baseline exactly as the repo is today:
+
+```bash
+cargo bench --bench compression > bench.log 2>&1
+cargo test --test acceptance -- --nocapture > acceptance.log 2>&1
+```
+
+Use the fast bench as the default signal. In this repo it covers:
+
+- `fast/compress`: `all_zeros/3`, `repetitive/3`, `binary_structured/3`, `random/1`
+- `fast/decompress`: the same four cases
+- `fast/roundtrip`: `repetitive_level3`, `random_level1`
+
+The bench also prints a ratio table for those cases near the top of `bench.log`.
+
+Useful extracts:
+
+```bash
+rg -n "Compression ratio summary|fast/(compress|decompress|roundtrip)|thrpt:" bench.log
+tail -n 40 acceptance.log
+```
+
+## Acceptance Criteria
+
+Keep a change only if all of these are true:
+
+- `cargo bench --bench compression` completes successfully
+- `cargo test --test acceptance -- --nocapture` passes, or skips only because `zstd` is unavailable
+- The result is a real improvement in compression ratio, throughput, or both
+- The tradeoff is defensible
+
+Tradeoff rules for this repo:
+
+- A ratio win on `repetitive` or `binary_structured` data is valuable only if throughput does not regress badly on the fast cases.
+- A throughput win is valuable only if compressed size does not materially worsen on compressible inputs.
+- Regressing `random/1` badly is usually a red flag, because it exercises the near-incompressible path.
+- Simpler code wins ties.
+
+If a change is ambiguous, run the full sweep before deciding:
+
+```bash
+ZSTD_RS_FULL_BENCHES=1 cargo bench --bench compression > bench-full.log 2>&1
+```
+
+## Profiling Loop
+
+Use profiling when the fast benchmark shows a regression, a suspicious plateau, or a likely hotspot.
+
+### Benchmark profiling
+
+```bash
+ZSTD_RS_PROFILE_BENCHES=1 cargo bench --profile profiling --features profiling --bench compression
+```
+
+This writes per-benchmark flamegraph artifacts under Criterion output directories.
+
+### CLI profiling
+
+Use the CLI path when you want a focused compress or decompress hotspot on a real file:
+
+```bash
+cargo run --profile profiling --features profiling -- \
+  --profile-cpu profiles/compress.svg \
+  --profile-repeat 200 \
+  --profile-min-ms 500 \
+  --profile-hz 1000 \
+  compress 3 input.txt output.zst
+```
+
+### Test profiling
+
+```bash
+mkdir -p profiles/tests
+ZSTD_RS_PROFILE_TESTS=profiles/tests \
+  cargo test --profile profiling --features profiling --test integration -- --nocapture
+```
+
+Profile first, then change code. Do not cargo-cult micro-optimizations.
+
+## Experiment Loop
+
+Loop autonomously once setup is complete:
+
+1. Inspect the current commit and the last accepted result.
+2. Choose one concrete idea.
+3. Edit only the code needed for that idea.
+4. Run the fast benchmark and save the log.
+5. If the benchmark crashes or the numbers clearly regress, discard the idea immediately.
+6. If the benchmark looks promising, run acceptance tests.
+7. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
+8. Log the outcome in `results.tsv`.
+9. Keep the commit only if the result clears the acceptance criteria; otherwise revert to the previous accepted commit.
+
+The very first run is always the untouched baseline.
+
+## Good Experiment Ideas
+
+- Improve LZ77 match search quality without exploding search cost
+- Reduce wasted work in candidate scanning, chain traversal, or lazy matching
+- Make block decisions smarter: raw vs RLE vs compressed
+- Improve literal or sequence coding decisions when entropy work is not paying off
+- Reduce allocator churn, copying, or temporary buffer traffic in hot paths
+- Special-case obvious incompressible inputs so they exit quickly
+
+## Bad Experiment Ideas
+
+- Chasing tiny wins by adding large amounts of brittle code
+- Breaking zstd interoperability to get prettier ratios
+- Changing tests or benches to hide regressions
+- Treating one corpus as the only truth
+- Keeping a change because one sample improved while the rest got worse
+
+## Decision Heuristics
+
+Prefer this order of evidence:
+
+1. Correctness and interoperability
+2. Fast benchmark trend across the four default corpora
+3. Ratio table changes on compressible inputs
+4. Profiling evidence that explains the result
+5. Full benchmark sweep when the fast signal is promising but incomplete
+
+If you cannot explain a result, do not trust it yet.
+
+## Logging
+
+Use one TSV row per experiment. Suggested status values:
+
+- `baseline`
+- `keep`
+- `discard`
+- `crash`
+
+Descriptions should be brief and concrete, for example:
+
+- `baseline`
+- `shorter hash-chain walk on random path`
+- `reuse literal scratch buffer`
+- `raw-block fallback earlier for incompressible input`
+
+## Safety
+
+- Redirect long command output to log files; do not flood context with raw Criterion output.
+- Do not commit `results.tsv`, `bench.log`, `bench-full.log`, `acceptance.log`, or profile artifacts.
+- If acceptance tests fail because `zstd` is missing, say so explicitly; that weakens confidence in any keep/discard decision.
+- If a change touches frame encoding, literals, sequences, or checksums, run broader tests before keeping it.
+
+## Stop Condition
+
+The loop is autonomous. Do not stop to ask whether to continue once the user has started a research run. Keep iterating until the user interrupts or a hard blocker makes further progress non-credible.
