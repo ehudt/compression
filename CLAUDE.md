@@ -26,7 +26,7 @@ cargo build              # compile library + binary
 cargo test               # unit tests + integration tests + doctests (must all pass)
 cargo test --test integration  # integration tests only
 cargo test --test acceptance   # interoperability tests against system zstd (see below)
-cargo bench              # Fast Criterion benchmarks (speed + ratio)
+cargo bench              # Fast signal benchmark (speed + ratio)
 ZSTD_RS_FULL_BENCHES=1 cargo bench  # exhaustive all-level benchmark sweep
 cargo run --example basic       # demo
 cargo run --bin zstd_rs -- compress 3 input.txt out.zst
@@ -77,9 +77,10 @@ disabled.
   `ZSTD_RS_PROFILE_TESTS=/path/to/dir` is set.
 - Criterion benchmarks enable `pprof` only when
   `ZSTD_RS_PROFILE_BENCHES=1` is set.
-- Plain `cargo bench` runs the reduced representative suite over levels
-  `1, 3, 9, 19, 22`; set `ZSTD_RS_FULL_BENCHES=1` for the exhaustive
-  `1..=22` sweep.
+- Plain `cargo bench` runs a small signal benchmark over four 64 KiB cases:
+  `all_zeros` level 3, `repetitive` level 3, `binary_structured` level 3,
+  and `random` level 1, plus two round-trip checks.
+- Set `ZSTD_RS_FULL_BENCHES=1` for the exhaustive `1..=22` sweep.
 - Every profile capture also writes textual companions:
   `*.folded` for folded stacks and `*.summary.txt` for an agent-friendly summary.
 

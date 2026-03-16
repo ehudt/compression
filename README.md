@@ -39,7 +39,7 @@ cargo run --bin zstd_rs -- decompress output.zst result.txt
 
 ```bash
 cargo test              # Unit + integration tests
-cargo bench             # Fast Criterion benchmarks (speed + ratio)
+cargo bench             # Fast signal benchmark (speed + ratio)
 ZSTD_RS_FULL_BENCHES=1 cargo bench  # Exhaustive all-level benchmark sweep
 cargo run --example basic
 ```
@@ -129,8 +129,18 @@ ZSTD_RS_PROFILE_BENCHES=1 \
   cargo bench --profile profiling --features profiling
 ```
 
-By default, `cargo bench` runs a reduced representative suite over levels
-`1, 3, 9, 19, 22` and prints a compression-ratio summary for the timed cases.
+By default, `cargo bench` runs a small signal benchmark intended for quick
+performance checks. It covers four compression/decompression cases on 64 KiB
+inputs:
+
+- `all_zeros` at level 3
+- `repetitive` at level 3
+- `binary_structured` at level 3
+- `random` at level 1
+
+It also includes two round-trip measurements (`repetitive` level 3 and
+`random` level 1) and prints a compression-ratio summary for those timed cases.
+
 Set `ZSTD_RS_FULL_BENCHES=1` to run the exhaustive `1..=22` sweep instead:
 
 ```bash
