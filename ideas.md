@@ -45,3 +45,19 @@ Currently the encoder only implements direct mode. When data uses more than 128 
 - Run across all levels (or a representative subset like 1, 3, 9, 19) to show the speed-vs-ratio tradeoff.
 - Optionally shell out to the system `zstd` binary on the same corpus to provide a direct side-by-side comparison in the same run.
 - Could be a new Criterion bench (`benches/silesia.rs`) or a standalone binary (`examples/silesia_bench.rs`).
+
+## Silesia round-trip failure on real corpus
+
+**Status:** Discovered while implementing the Silesia benchmark on 2026-03-17
+**Context:** Running the real Silesia corpus through `zstd_rs` uncovered a correctness bug before meaningful benchmark numbers could be trusted. The first reproduced failure is:
+
+- level `1`
+- file `dickens`
+- symptom: `zstd_rs` compresses the file, then `zstd_rs` fails to decompress its own output with `Huffman table error: max_bits out of range`
+
+**Opportunity:** Turn this into a targeted regression test and fix the underlying literal/Huffman header or table-generation bug so the Silesia benchmark can compare valid streams instead of just reporting failures.
+
+**Implementation notes:**
+- The benchmark driver in `examples/silesia_bench.rs` now surfaces the failing file/level instead of hiding it.
+- Likely areas: literal section encoding in `src/encoder/block.rs` and Huffman weight/table construction in `src/huffman.rs`.
+- Once fixed, add a regression case using either the `dickens` prefix that reproduces the bug or a minimized fixture derived from it.

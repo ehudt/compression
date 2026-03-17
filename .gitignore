@@ -1,2 +1,6 @@
 /target
 /profiles/
+/benches/data/
+/docs/benchmarks/*.svg
+/docs/benchmarks/*.md
+/docs/benchmarks/*.json

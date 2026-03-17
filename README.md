@@ -42,6 +42,7 @@ cargo test              # Unit + integration tests
 cargo bench             # Default Criterion benches, including the squash-style suite
 cargo bench --bench squash  # Squash-style corpus benchmark only
 ZSTD_RS_FULL_BENCHES=1 cargo bench --bench squash  # Exhaustive squash sweep
+cargo run --release --example silesia_bench -- --download  # Silesia corpus comparison + SVG output
 cargo run --example basic
 ```
 
@@ -202,6 +203,48 @@ Full mode increases corpus size to 256 KiB, sweeps all compression levels
 
 Without `ZSTD_RS_FULL_BENCHES`, the squash suite keeps Criterion settings short
 for quick iteration by reducing sample size and measurement time.
+
+### Silesia benchmark against official `zstd`
+
+For a direct side-by-side comparison with the system `zstd` implementation on
+the Silesia corpus, run:
+
+```bash
+cargo run --release --example silesia_bench -- --download
+```
+
+This benchmark:
+
+- caches the Silesia corpus under `benches/data/silesia/`
+- benchmarks both `zstd_rs` and the system `zstd` CLI at levels `1,3,9,19`
+- writes a README-style markdown table to `docs/benchmarks/silesia-comparison.md`
+- writes raw results to `docs/benchmarks/silesia-comparison.json`
+- writes a two-panel SVG comparison chart to `docs/benchmarks/silesia-comparison.svg`
+
+Required host tools:
+
+- Rust toolchain (`cargo`, `rustc`)
+- `zstd` CLI in `PATH` for the official implementation comparison
+- `curl` and `python3` in `PATH` when using `--download`
+
+Useful flags:
+
+```bash
+cargo run --release --example silesia_bench -- \
+  --corpus-dir benches/data/silesia \
+  --output-dir docs/benchmarks \
+  --implementation both \
+  --levels 1,3,9,19 \
+  --min-bench-ms 1000
+```
+
+To benchmark only the official implementation on the same machine:
+
+```bash
+cargo run --release --example silesia_bench -- \
+  --download \
+  --implementation official
+```
 
 ## Architecture
 

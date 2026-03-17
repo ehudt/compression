@@ -29,6 +29,7 @@ cargo test --test acceptance   # interoperability tests against system zstd (see
 cargo bench              # Fast signal benchmark (speed + ratio)
 cargo bench --bench squash          # Squash-style multi-corpus benchmark
 ZSTD_RS_FULL_BENCHES=1 cargo bench  # exhaustive all-level benchmark sweep
+cargo run --release --example silesia_bench -- --download  # Silesia benchmark vs official zstd + SVG
 cargo run --example basic       # demo
 cargo run --bin zstd_rs -- compress 3 input.txt out.zst
 cargo run --bin zstd_rs -- decompress out.zst result.txt
@@ -62,6 +63,35 @@ than failing, so the suite remains usable in environments without the tool.
 
 Tests must pass before committing.  The project has zero warnings in the
 default configuration; do not introduce new warnings.
+
+### Silesia benchmark prerequisites
+
+The standalone Silesia benchmark example (`examples/silesia_bench.rs`) compares
+`zstd_rs` against the system `zstd` implementation and generates markdown, JSON,
+and SVG outputs under `docs/benchmarks/`.
+
+Required tools:
+
+- Rust toolchain (`cargo`, `rustc`)
+- `zstd` CLI in `PATH`
+- `curl` and `python3` in `PATH` when using `--download` to fetch the corpus cache
+
+Typical usage:
+
+```bash
+cargo run --release --example silesia_bench -- --download
+```
+
+Useful flags:
+
+```bash
+cargo run --release --example silesia_bench -- \
+  --corpus-dir benches/data/silesia \
+  --output-dir docs/benchmarks \
+  --implementation both \
+  --levels 1,3,9,19 \
+  --min-bench-ms 1000
+```
 
 ### Profiling workflow
 
@@ -121,6 +151,7 @@ benches/
   squash.rs              Squash-style multi-corpus benchmark (8 data categories)
 examples/
   basic.rs               Simple compress/decompress demo
+  silesia_bench.rs       Silesia corpus benchmark vs system zstd + SVG/JSON/MD outputs
 ```
 
 ---
