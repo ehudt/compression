@@ -1,0 +1,1 @@
+See CLAUDE.md. DONT UPDATE THIS FILE, only CLAUDE.md.
