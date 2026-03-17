@@ -41,7 +41,10 @@ pub fn encode_block(data: &[u8], cfg: &super::MatchConfig) -> Result<Vec<u8>> {
 
     let (mut literals, mut sequences) = collect_sequences(data, cfg);
     let mut seq_section = encode_sequences(&sequences);
-    if !sequences.is_empty() && !validate_sequences(data, &literals, &seq_section) {
+    if should_validate_sequences()
+        && !sequences.is_empty()
+        && !validate_sequences(data, &literals, &seq_section)
+    {
         literals = data.to_vec();
         sequences.clear();
         seq_section = encode_sequences(&sequences);
@@ -50,6 +53,11 @@ pub fn encode_block(data: &[u8], cfg: &super::MatchConfig) -> Result<Vec<u8>> {
     let mut out = encode_literals(&literals)?;
     out.extend_from_slice(&seq_section);
     Ok(out)
+}
+
+#[inline]
+fn should_validate_sequences() -> bool {
+    cfg!(debug_assertions)
 }
 
 fn validate_sequences(original: &[u8], literals: &[u8], seq_section: &[u8]) -> bool {
