@@ -36,7 +36,8 @@ Do not start by editing the benchmark harness or tests unless the task is explic
 1. Propose a fresh branch name of the form `autoresearch/<tag>` and create it from the current mainline.
 2. Confirm the worktree is otherwise clean enough to experiment safely.
 3. Use the tracked `results.tsv` file as the default experiment log.
-4. Establish the baseline before making any code changes.
+4. Create a temp log directory outside the repo, for example `LOG_DIR=/tmp/compression-autoresearch-logs`, and write all benchmark/test logs there.
+5. Establish the baseline before making any code changes.
 
 Suggested TSV header:
 
@@ -51,8 +52,10 @@ Free-form notes are acceptable because Criterion output is textual and case-base
 Run the baseline exactly as the repo is today:
 
 ```bash
-cargo bench --bench compression > bench.log 2>&1
-cargo test --test acceptance -- --nocapture > acceptance.log 2>&1
+LOG_DIR=/tmp/compression-autoresearch-logs
+mkdir -p "$LOG_DIR"
+cargo bench --bench compression > "$LOG_DIR/bench.log" 2>&1
+cargo test --test acceptance -- --nocapture > "$LOG_DIR/acceptance.log" 2>&1
 ```
 
 Use the fast bench as the default signal. In this repo it covers:
@@ -61,13 +64,13 @@ Use the fast bench as the default signal. In this repo it covers:
 - `fast/decompress`: the same four cases
 - `fast/roundtrip`: `repetitive_level3`, `random_level1`
 
-The bench also prints a ratio table for those cases near the top of `bench.log`.
+The bench also prints a ratio table for those cases near the top of `$LOG_DIR/bench.log`.
 
 Useful extracts:
 
 ```bash
-rg -n "Compression ratio summary|fast/(compress|decompress|roundtrip)|thrpt:" bench.log
-tail -n 40 acceptance.log
+rg -n "Compression ratio summary|fast/(compress|decompress|roundtrip)|thrpt:" "$LOG_DIR/bench.log"
+tail -n 40 "$LOG_DIR/acceptance.log"
 ```
 
 ## Acceptance Criteria
@@ -89,7 +92,7 @@ Tradeoff rules for this repo:
 If a change is ambiguous, run the full sweep before deciding:
 
 ```bash
-ZSTD_RS_FULL_BENCHES=1 cargo bench --bench compression > bench-full.log 2>&1
+ZSTD_RS_FULL_BENCHES=1 cargo bench --bench compression > "$LOG_DIR/bench-full.log" 2>&1
 ```
 
 ## Profiling Loop
@@ -191,6 +194,7 @@ Descriptions should be brief and concrete, for example:
 ## Safety
 
 - Redirect long command output to log files; do not flood context with raw Criterion output.
+- Write temp benchmark/test logs under `/tmp` or another untracked directory, not in the repo root.
 - Do not commit `bench.log`, `bench-full.log`, `acceptance.log`, or profile artifacts.
 - If acceptance tests fail because `zstd` is missing, say so explicitly; that weakens confidence in any keep/discard decision.
 - If a change touches frame encoding, literals, sequences, or checksums, run broader tests before keeping it.
