@@ -79,7 +79,7 @@ Required tools:
 Typical usage:
 
 ```bash
-cargo run --release --example silesia_bench -- --download
+cargo run --release --example silesia_bench -- --download --implementation both
 ```
 
 Useful flags:
@@ -91,6 +91,19 @@ cargo run --release --example silesia_bench -- \
   --implementation both \
   --levels 1,3,9,19 \
   --min-bench-ms 1000
+```
+
+Common one-line variants:
+
+```bash
+# Both implementations on the same machine
+cargo run --release --example silesia_bench -- --download --implementation both
+
+# Official zstd only
+cargo run --release --example silesia_bench -- --download --implementation official
+
+# zstd_rs only
+cargo run --release --example silesia_bench -- --download --implementation ours
 ```
 
 ### Profiling workflow
