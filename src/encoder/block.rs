@@ -286,6 +286,14 @@ fn encode_literals(data: &[u8]) -> Result<Vec<u8>> {
         Err(_) => return encode_raw(data),
     };
 
+    // Direct-mode Huffman header supports at most 128 stored weights
+    // (header_byte 128..=255). If the table has more active symbols,
+    // fall back to raw to avoid header overflow.
+    let weights = table.to_weights();
+    if weights.len() > 128 {
+        return encode_raw(data);
+    }
+
     let huff_header = write_huffman_header(&table);
     let comp_size = huff_header.len() + encoded.len();
 
