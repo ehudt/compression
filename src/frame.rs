@@ -63,22 +63,31 @@ pub fn compress_with_config(
         let block_data = &input[pos..block_end];
         let is_last = block_end == input.len();
 
-        let compressed = encode_block(block_data, cfg)?;
-
-        // Decide whether to use compressed or raw block
-        let (block_type, payload): (u8, &[u8]) = if compressed.len() < block_data.len() {
-            (2, &compressed)
+        let compressed = if should_attempt_compressed_block(block_data, cfg) {
+            Some(encode_block(block_data, cfg)?)
         } else {
-            (0, block_data)
+            None
         };
 
-        let block_size = payload.len();
+        let use_compressed = compressed
+            .as_ref()
+            .is_some_and(|payload| payload.len() < block_data.len());
+        let block_type = if use_compressed { 2 } else { 0 };
+        let block_size = if use_compressed {
+            compressed.as_ref().unwrap().len()
+        } else {
+            block_data.len()
+        };
         // Block header: 3 bytes, little-endian
         // [last:1][type:2][size:21]
         let header_val: u32 =
-            ((is_last as u32) | ((block_type as u32) << 1) | ((block_size as u32) << 3)) as u32;
+            (is_last as u32) | ((block_type as u32) << 1) | ((block_size as u32) << 3);
         out.extend_from_slice(&header_val.to_le_bytes()[..3]);
-        out.extend_from_slice(payload);
+        if use_compressed {
+            out.extend_from_slice(compressed.as_ref().unwrap());
+        } else {
+            out.extend_from_slice(block_data);
+        }
 
         pos = block_end;
     }
@@ -96,6 +105,45 @@ pub fn compress_with_config(
     }
 
     Ok(out)
+}
+
+fn should_attempt_compressed_block(data: &[u8], cfg: &MatchConfig) -> bool {
+    !looks_incompressible(data, cfg)
+}
+
+fn looks_incompressible(data: &[u8], cfg: &MatchConfig) -> bool {
+    if data.len() < 8 * 1024 || cfg.search_depth > 8 {
+        return false;
+    }
+
+    const SAMPLE_BYTES: usize = 4 * 1024;
+    const SAMPLE_STRIDE: usize = 8;
+    const SAMPLE_HASH_LOG: usize = 9;
+    const SAMPLE_TABLE_SIZE: usize = 1 << SAMPLE_HASH_LOG;
+    const SAMPLE_HASH_PRIME: u64 = 0x9E37_79B1_9E37_79B1;
+
+    let sample_end = data.len().saturating_sub(4).min(SAMPLE_BYTES);
+    if sample_end < SAMPLE_STRIDE * 8 {
+        return false;
+    }
+
+    let mut table = [u32::MAX; SAMPLE_TABLE_SIZE];
+    let mut exact_repeats = 0usize;
+
+    for pos in (0..=sample_end).step_by(SAMPLE_STRIDE) {
+        let seq = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap());
+        let hash =
+            ((u64::from(seq).wrapping_mul(SAMPLE_HASH_PRIME)) >> (64 - SAMPLE_HASH_LOG)) as usize;
+        if table[hash] == seq {
+            exact_repeats += 1;
+            if exact_repeats > 1 {
+                return false;
+            }
+        }
+        table[hash] = seq;
+    }
+
+    true
 }
 
 /// Decompress a zstd frame from `input`.

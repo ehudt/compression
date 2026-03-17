@@ -115,6 +115,8 @@ impl MatchFinder {
         let mut best_len = 0usize;
         let mut best_off = 0usize;
         let max_offset = WINDOW_SIZE;
+        let needle = load_u32(data, pos);
+        let max_len = (data.len() - pos).min(self.cfg.max_match);
 
         for _ in 0..self.cfg.search_depth {
             if candidate == u32::MAX {
@@ -127,17 +129,13 @@ impl MatchFinder {
             let offset = pos - cand_pos;
 
             // Check first 4 bytes quickly
-            if data[cand_pos..cand_pos + 4] != data[pos..pos + 4] {
+            if load_u32(data, cand_pos) != needle {
                 candidate = self.chain[cand_pos & self.window_mask];
                 continue;
             }
 
             // Extend match
-            let max_len = (data.len() - pos).min(self.cfg.max_match);
-            let mut len = 4;
-            while len < max_len && data[cand_pos + len] == data[pos + len] {
-                len += 1;
-            }
+            let len = match_length(data, cand_pos, pos, max_len);
 
             if len > best_len {
                 best_len = len;
@@ -168,6 +166,28 @@ impl MatchFinder {
             }
         }
     }
+}
+
+#[inline]
+fn load_u32(data: &[u8], pos: usize) -> u32 {
+    u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap())
+}
+
+#[inline]
+fn match_length(data: &[u8], cand_pos: usize, pos: usize, max_len: usize) -> usize {
+    let mut len = 4;
+
+    while len + 8 <= max_len
+        && data[cand_pos + len..cand_pos + len + 8] == data[pos + len..pos + len + 8]
+    {
+        len += 8;
+    }
+
+    while len < max_len && data[cand_pos + len] == data[pos + len] {
+        len += 1;
+    }
+
+    len
 }
 
 /// A parsed "event" produced by the LZ77 pass.

@@ -187,8 +187,7 @@ fn corpus_medical_image(size: usize) -> Vec<u8> {
         let x = i % width;
         let y = i / width;
         // Smooth gradient with subtle noise — mimics grayscale medical images
-        let base = ((x as f64 / width as f64) * 200.0
-            + (y as f64 / width as f64) * 55.0) as u8;
+        let base = ((x as f64 / width as f64) * 200.0 + (y as f64 / width as f64) * 55.0) as u8;
         lcg = lcg
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
@@ -339,18 +338,24 @@ fn build_cases(size: usize, levels: &[i32]) -> Vec<SquashCase> {
 
 fn print_squash_table(cases: &[SquashCase], size: usize) {
     eprintln!();
-    eprintln!("╔══════════════════════════════════════════════════════════════════════════════════╗");
+    eprintln!(
+        "╔══════════════════════════════════════════════════════════════════════════════════╗"
+    );
     eprintln!(
         "║  Squash-style benchmark — {} KiB corpus size{} ║",
         size / 1024,
         " ".repeat(80 - 48 - format!("{}", size / 1024).len())
     );
-    eprintln!("╠════════════════╤═══════════╤═══════╤═════════════╤════════════╤══════════════════╣");
+    eprintln!(
+        "╠════════════════╤═══════════╤═══════╤═════════════╤════════════╤══════════════════╣"
+    );
     eprintln!(
         "║ {:<14} │ {:<9} │ {:>5} │ {:>11} │ {:>10} │ {:>16} ║",
         "corpus", "category", "level", "input bytes", "compressed", "ratio"
     );
-    eprintln!("╟────────────────┼───────────┼───────┼─────────────┼────────────┼──────────────────╢");
+    eprintln!(
+        "╟────────────────┼───────────┼───────┼─────────────┼────────────┼──────────────────╢"
+    );
 
     for case in cases {
         eprintln!(
@@ -364,7 +369,9 @@ fn print_squash_table(cases: &[SquashCase], size: usize) {
         );
     }
 
-    eprintln!("╚════════════════╧═══════════╧═══════╧═════════════╧════════════╧══════════════════╝");
+    eprintln!(
+        "╚════════════════╧═══════════╧═══════╧═════════════╧════════════╧══════════════════╝"
+    );
     eprintln!();
 }
 
@@ -411,15 +418,12 @@ fn bench_squash_fast(c: &mut Criterion) {
             .iter()
             .find(|c| c.corpus_name == corpus && c.level == level)
         {
-            rg.bench_function(
-                format!("{}_level{}", case.corpus_name, case.level),
-                |b| {
-                    b.iter(|| {
-                        let comp = compress(black_box(&case.input), case.level).unwrap();
-                        decompress(black_box(&comp)).unwrap()
-                    });
-                },
-            );
+            rg.bench_function(format!("{}_level{}", case.corpus_name, case.level), |b| {
+                b.iter(|| {
+                    let comp = compress(black_box(&case.input), case.level).unwrap();
+                    decompress(black_box(&comp)).unwrap()
+                });
+            });
         }
     }
     rg.finish();
@@ -461,11 +465,9 @@ fn bench_squash_full(c: &mut Criterion) {
         sg.throughput(Throughput::Bytes(sz as u64));
         for def in CORPORA {
             let data = (def.generate)(sz);
-            sg.bench_with_input(
-                BenchmarkId::new(def.name, sz),
-                &data,
-                |b, input| b.iter(|| compress(black_box(input), 3).unwrap()),
-            );
+            sg.bench_with_input(BenchmarkId::new(def.name, sz), &data, |b, input| {
+                b.iter(|| compress(black_box(input), 3).unwrap())
+            });
         }
     }
     sg.finish();
