@@ -14,6 +14,10 @@ profiling = ["dep:pprof"]
 name = "compression"
 harness = false
 
+[[bench]]
+name = "squash"
+harness = false
+
 [[bin]]
 name = "zstd_rs"
 path = "src/main.rs"
