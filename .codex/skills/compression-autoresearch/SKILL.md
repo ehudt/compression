@@ -35,7 +35,7 @@ Do not start by editing the benchmark harness or tests unless the task is explic
 
 1. Propose a fresh branch name of the form `autoresearch/<tag>` and create it from the current mainline.
 2. Confirm the worktree is otherwise clean enough to experiment safely.
-3. Create an untracked results file such as `results.tsv`. Do not commit it.
+3. Use the tracked `results.tsv` file as the default experiment log.
 4. Establish the baseline before making any code changes.
 
 Suggested TSV header:
@@ -174,7 +174,7 @@ If you cannot explain a result, do not trust it yet.
 
 ## Logging
 
-Use one TSV row per experiment. Suggested status values:
+Use one TSV row per experiment, including discarded ideas. Suggested status values:
 
 - `baseline`
 - `keep`
@@ -191,7 +191,7 @@ Descriptions should be brief and concrete, for example:
 ## Safety
 
 - Redirect long command output to log files; do not flood context with raw Criterion output.
-- Do not commit `results.tsv`, `bench.log`, `bench-full.log`, `acceptance.log`, or profile artifacts.
+- Do not commit `bench.log`, `bench-full.log`, `acceptance.log`, or profile artifacts.
 - If acceptance tests fail because `zstd` is missing, say so explicitly; that weakens confidence in any keep/discard decision.
 - If a change touches frame encoding, literals, sequences, or checksums, run broader tests before keeping it.
 
