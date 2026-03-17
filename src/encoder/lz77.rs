@@ -160,10 +160,25 @@ impl MatchFinder {
 
     /// Register all positions in a literal run (so the hash table stays up-to-date).
     pub fn skip(&mut self, data: &[u8], pos: usize, length: usize) {
+        let sparse_step = match length {
+            0..=24 => 1,
+            25..=96 => 2,
+            97..=256 => 4,
+            _ => 8,
+        };
+        let dense_prefix = 8usize;
+        let dense_suffix = 8usize;
+
         for i in 0..length {
-            if pos + i + 4 <= data.len() {
-                self.insert(data, pos + i);
+            if pos + i + 4 > data.len() {
+                break;
             }
+
+            if i >= dense_prefix && i + dense_suffix < length && i % sparse_step != 0 {
+                continue;
+            }
+
+            self.insert(data, pos + i);
         }
     }
 }
