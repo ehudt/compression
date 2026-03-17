@@ -30,6 +30,10 @@ fn profile_test(test_name: &str) -> ProfileSession {
     ProfileSession::from_test_env(test_name).unwrap_or_else(|message| panic!("{message}"))
 }
 
+fn silesia_dickens() -> &'static [u8] {
+    include_bytes!("../benches/data/silesia/dickens")
+}
+
 // ── Empty / trivial ──────────────────────────────────────────────────────────
 
 #[test]
@@ -163,6 +167,15 @@ fn roundtrip_high_levels() {
     let data = b"high compression ratio test. ".repeat(100);
     for level in [15, 19, 22] {
         roundtrip(&data, level);
+    }
+}
+
+#[test]
+fn roundtrip_silesia_dickens_regression_levels() {
+    let _profile = profile_test("roundtrip_silesia_dickens_regression_levels");
+    let data = silesia_dickens();
+    for level in [1, 3, 9, 19] {
+        roundtrip(data, level);
     }
 }
 

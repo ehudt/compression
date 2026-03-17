@@ -276,13 +276,11 @@ fn encode_literals(data: &[u8]) -> Result<Vec<u8>> {
         return encode_rle(sym, data.len());
     }
 
-    // Build Huffman table; fall back to raw on failure
+    // Build a Huffman table, then validate that the serialized weight header
+    // can reconstruct the same coding model. If not, emit raw literals rather
+    // than an invalid compressed-literals section.
     let table = match HuffmanTable::from_frequencies(&freqs) {
         Ok(t) => t,
-        Err(_) => return encode_raw(data),
-    };
-    let encoded = match table.encode(data) {
-        Ok(e) => e,
         Err(_) => return encode_raw(data),
     };
 
@@ -293,6 +291,16 @@ fn encode_literals(data: &[u8]) -> Result<Vec<u8>> {
     if weights.len() > 128 {
         return encode_raw(data);
     }
+
+    let table = match HuffmanTable::from_weights(&weights) {
+        Ok(table) => table,
+        Err(_) => return encode_raw(data),
+    };
+
+    let encoded = match table.encode(data) {
+        Ok(e) => e,
+        Err(_) => return encode_raw(data),
+    };
 
     let huff_header = write_huffman_header(&table);
     let comp_size = huff_header.len() + encoded.len();
