@@ -39,8 +39,9 @@ cargo run --bin zstd_rs -- decompress output.zst result.txt
 
 ```bash
 cargo test              # Unit + integration tests
-cargo bench             # Fast signal benchmark (speed + ratio)
-ZSTD_RS_FULL_BENCHES=1 cargo bench  # Exhaustive all-level benchmark sweep
+cargo bench             # Default Criterion benches, including the squash-style suite
+cargo bench --bench squash  # Squash-style corpus benchmark only
+ZSTD_RS_FULL_BENCHES=1 cargo bench --bench squash  # Exhaustive squash sweep
 cargo run --example basic
 ```
 
@@ -158,6 +159,50 @@ When `ZSTD_RS_PROFILE_BENCHES` is not set, benches run without `pprof`.
 When it is set, each benchmark profile directory gets `flamegraph.svg`,
 `flamegraph.folded`, and `flamegraph.summary.txt`.
 
+### Squash-style benchmark
+
+The repo also includes a dedicated Criterion bench at `benches/squash.rs`
+inspired by the Squash Compression Benchmark / Silesia-style corpus mix. It
+uses synthetic corpora chosen to approximate common data categories instead of
+timing only a few hand-picked samples.
+
+Run the focused suite with:
+
+```bash
+cargo bench --bench squash
+```
+
+The default fast mode uses 64 KiB corpora and benchmarks compression and
+decompression at levels `1`, `3`, `9`, and `19` for these categories:
+
+- `text`
+- `xml`
+- `source_code`
+- `executable`
+- `database`
+- `medical_image`
+- `json`
+- `random`
+
+Before Criterion timing starts, the bench prints a squash-style summary table
+showing corpus name, category, compression level, input size, compressed size,
+and compression ratio.
+
+Set `ZSTD_RS_FULL_BENCHES=1` to switch the suite into its exhaustive mode:
+
+```bash
+ZSTD_RS_FULL_BENCHES=1 cargo bench --bench squash
+```
+
+Full mode increases corpus size to 256 KiB, sweeps all compression levels
+`1..=22`, and adds:
+
+- size-scaling compression measurements at `4 KiB`, `16 KiB`, `64 KiB`, `256 KiB`, and `1 MiB`
+- round-trip benchmarks for every corpus at level `3`
+
+Without `ZSTD_RS_FULL_BENCHES`, the squash suite keeps Criterion settings short
+for quick iteration by reducing sample size and measurement time.
+
 ## Architecture
 
 ```
@@ -194,19 +239,6 @@ For compatibility and simplicity, the encoder currently emits offsets through
 the non-repeat-offset path and uses predefined FSE tables rather than
 per-block custom tables. If sequence encoding fails validation, the encoder
 falls back to a literals-only block so decompression remains correct.
-
-## Status
-
-| Component | Status |
-|-----------|--------|
-| Frame format | ✅ Complete |
-| Huffman literals | ✅ Complete |
-| RLE / raw literals | ✅ Complete |
-| Content checksum (xxhash32) | ✅ Complete |
-| FSE tables (decode) | ✅ Complete |
-| Sequence decoder | ✅ Complete |
-| LZ77 match finder | ✅ Complete |
-| FSE sequence encoder | ✅ Complete |
 
 ## License
 
