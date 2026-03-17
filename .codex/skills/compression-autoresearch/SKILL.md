@@ -36,7 +36,7 @@ Do not start by editing the benchmark harness or tests unless the task is explic
 1. Propose a fresh branch name of the form `autoresearch/<tag>` and create it from the current mainline.
 2. Confirm the worktree is otherwise clean enough to experiment safely.
 3. Use the tracked `results.tsv` file as the default experiment log.
-4. Create a temp log directory outside the repo, for example `LOG_DIR=/tmp/compression-autoresearch-logs`, and write all benchmark/test logs there.
+4. Create a unique temp log directory outside the repo, for example with `LOG_DIR=$(mktemp -d /tmp/compression-autoresearch-XXXXXX)`, and write all benchmark/test logs there.
 5. Establish the baseline before making any code changes.
 
 Suggested TSV header:
@@ -52,8 +52,7 @@ Free-form notes are acceptable because Criterion output is textual and case-base
 Run the baseline exactly as the repo is today:
 
 ```bash
-LOG_DIR=/tmp/compression-autoresearch-logs
-mkdir -p "$LOG_DIR"
+LOG_DIR=$(mktemp -d /tmp/compression-autoresearch-XXXXXX)
 cargo bench --bench compression > "$LOG_DIR/bench.log" 2>&1
 cargo test --test acceptance -- --nocapture > "$LOG_DIR/acceptance.log" 2>&1
 ```
