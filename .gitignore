@@ -4,5 +4,6 @@
 /docs/benchmarks/*.svg
 /docs/benchmarks/*.md
 /docs/benchmarks/*.json
-/.claude/
+/.claude/worktrees/
+/.claude/settings.local.json
 /.codex/worktrees/
