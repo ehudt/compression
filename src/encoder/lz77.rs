@@ -117,7 +117,6 @@ impl MatchFinder {
         let max_offset = WINDOW_SIZE;
         let needle = load_u32(data, pos);
         let max_len = (data.len() - pos).min(self.cfg.max_match);
-
         for _ in 0..self.cfg.search_depth {
             if candidate == u32::MAX {
                 break;
@@ -168,16 +167,25 @@ impl MatchFinder {
         };
         let dense_prefix = 8usize;
         let dense_suffix = 8usize;
+        let Some(valid_len) = data.len().checked_sub(pos + 4).map(|tail| tail + 1) else {
+            return;
+        };
+        let limit = length.min(valid_len);
+        let prefix_end = dense_prefix.min(limit);
 
-        for i in 0..length {
-            if pos + i + 4 > data.len() {
-                break;
+        for i in 0..prefix_end {
+            self.insert(data, pos + i);
+        }
+
+        let middle_end = length.saturating_sub(dense_suffix).min(limit);
+        if prefix_end < middle_end {
+            let middle_start = prefix_end.next_multiple_of(sparse_step);
+            for i in (middle_start..middle_end).step_by(sparse_step) {
+                self.insert(data, pos + i);
             }
+        }
 
-            if i >= dense_prefix && i + dense_suffix < length && i % sparse_step != 0 {
-                continue;
-            }
-
+        for i in middle_end.max(prefix_end)..limit {
             self.insert(data, pos + i);
         }
     }
