@@ -57,6 +57,16 @@ cargo bench --bench compression > "$LOG_DIR/bench.log" 2>&1
 cargo test --test acceptance -- --nocapture > "$LOG_DIR/acceptance.log" 2>&1
 ```
 
+For thorough validation of a promising change, use the full Silesia run with our
+implementation only:
+
+```bash
+cargo run --release --example silesia_bench -- \
+  --download \
+  --implementation ours \
+  > "$LOG_DIR/silesia.log" 2>&1
+```
+
 Use the fast bench as the default signal. In this repo it covers:
 
 - `fast/compress`: `all_zeros/3`, `repetitive/3`, `binary_structured/3`, `random/1`
@@ -81,6 +91,9 @@ Keep a change only if all of these are true:
 - The result is a real improvement in compression ratio, throughput, or both
 - The tradeoff is defensible
 
+Before merging or treating a result as validated, also require the full Silesia
+benchmark with `--implementation ours` to complete successfully.
+
 Tradeoff rules for this repo:
 
 - A ratio win on `repetitive` or `binary_structured` data is valuable only if throughput does not regress badly on the fast cases.
@@ -92,6 +105,16 @@ If a change is ambiguous, run the full sweep before deciding:
 
 ```bash
 ZSTD_RS_FULL_BENCHES=1 cargo bench --bench compression > "$LOG_DIR/bench-full.log" 2>&1
+```
+
+If a change looks worth keeping after the fast bench and acceptance tests, run
+the full Silesia benchmark before finalizing the decision:
+
+```bash
+cargo run --release --example silesia_bench -- \
+  --download \
+  --implementation ours \
+  > "$LOG_DIR/silesia.log" 2>&1
 ```
 
 ## Profiling Loop
@@ -139,9 +162,10 @@ Loop autonomously once setup is complete:
 4. Run the fast benchmark and save the log.
 5. If the benchmark crashes or the numbers clearly regress, discard the idea immediately.
 6. If the benchmark looks promising, run acceptance tests.
-7. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
-8. Log the outcome in `results.tsv`.
-9. Keep the commit only if the result clears the acceptance criteria; otherwise revert to the previous accepted commit.
+7. If the change still looks worth keeping, run the full Silesia benchmark with `--implementation ours`.
+8. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
+9. Log the outcome in `results.tsv`.
+10. Keep the commit only if the result clears the acceptance criteria; otherwise revert to the previous accepted commit.
 
 The very first run is always the untouched baseline.
 
@@ -168,9 +192,10 @@ Prefer this order of evidence:
 
 1. Correctness and interoperability
 2. Fast benchmark trend across the four default corpora
-3. Ratio table changes on compressible inputs
-4. Profiling evidence that explains the result
-5. Full benchmark sweep when the fast signal is promising but incomplete
+3. Full Silesia results for our implementation
+4. Ratio table changes on compressible inputs
+5. Profiling evidence that explains the result
+6. Full benchmark sweep when the fast signal is promising but incomplete
 
 If you cannot explain a result, do not trust it yet.
 
@@ -194,7 +219,7 @@ Descriptions should be brief and concrete, for example:
 
 - Redirect long command output to log files; do not flood context with raw Criterion output.
 - Write temp benchmark/test logs under `/tmp` or another untracked directory, not in the repo root.
-- Do not commit `bench.log`, `bench-full.log`, `acceptance.log`, or profile artifacts.
+- Do not commit `bench.log`, `bench-full.log`, `acceptance.log`, `silesia.log`, or profile artifacts.
 - If acceptance tests fail because `zstd` is missing, say so explicitly; that weakens confidence in any keep/discard decision.
 - If a change touches frame encoding, literals, sequences, or checksums, run broader tests before keeping it.
 
