@@ -26,25 +26,16 @@ These patterns emerged from the results tracked in `results.tsv`:
 
 ## Remove a whole compress-side pass at level 3
 
-**Status:** Active research direction
-**Context:** See strategic learnings above. The weighted benchmark is a useful
-signal for fast iteration, but Silesia confirmation is required before keeping.
+**Status:** Partially validated on 2026-03-21
+**Context:** A structural version of this idea did clear both gates: streaming LZ77 parse events directly into block literal/sequence collection removed the intermediate `Vec<Event>` pass and improved the weighted suite from `1994.2` to `2156.2 MB/s` (`+8.12%`) with flat ratio. Serial Silesia confirmed the win at level 3 from `49.4` to `50.9 MB/s` (`+3.04%`) while keeping ratio flat.
 
-**Strong candidates:**
-- Stream LZ77 output directly into sequence/literal collection (avoid
-  materializing intermediate parse events -- tried once as "stream parse events
-  directly" and it regressed; needs a different approach)
-- Reuse block scratch buffers across blocks (tried as "preallocate parse events
-  and block literal/sequence buffers" -- regressed; may need profile-guided
-  approach to find the real allocation hotspots)
-- Smarter early raw-block fallback that preserves ratio on structured inputs
+**Opportunity:** Continue looking for pass-elimination changes that remove allocations or second walks over block data. The main lesson is that structural cuts in the compression pipeline can survive Silesia, unlike several earlier inner-loop-only wins.
 
-**Already tried and failed:**
-- Lower LZ77 search depth from 8 to 6 (regressed repetitive/binary_structured)
-- Shorter incompressible sample window (regressed repetitive/binary_structured)
-- Early exit after good-enough match length (regressed compress speed)
-- Sparser reinsertion step 12 for long skips (noisy, ambiguous gains)
-- Step 16 reinsertion for long matches (regressed compress by ~5%)
+**Implementation notes:**
+- Focus on code that runs across long compressible files, not just tiny hot loops: `src/encoder/block.rs`, `src/encoder/lz77.rs`, and block-level decisions in `src/frame.rs`.
+- Streaming parse events worked; adjacent ideas worth trying next are scratch-buffer reuse across blocks and avoiding needless fallback copies when a block is abandoned.
+- Treat weighted-only wins as suspicious until Silesia confirms them; longer-file behavior matters more than short synthetic cases.
+- Prefer changes that reduce allocations or whole passes over tweaks like wider compare chunks or lookup micro-optimizations.
 
 ## FSE-compressed Huffman weight encoding
 

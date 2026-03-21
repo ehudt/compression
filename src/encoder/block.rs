@@ -9,7 +9,7 @@
 //! The block encoder parses LZ77 events and emits sequence commands using the
 //! predefined FSE tables for literal-length, match-length, and offset codes.
 
-use super::lz77::{Event, parse};
+use super::lz77::{Event, parse_with_sink};
 use crate::decoder::sequences::{decode_sequences, execute_sequences};
 use crate::error::Result;
 use crate::fse::{BitWriter, FseDecodeTable, build_decode_table};
@@ -75,12 +75,15 @@ fn validate_sequences(original: &[u8], literals: &[u8], seq_section: &[u8]) -> b
 }
 
 fn collect_sequences(data: &[u8], cfg: &super::MatchConfig) -> (Vec<u8>, Vec<EncodedSequence>) {
-    let events = parse(data, cfg);
-    let mut literals = Vec::new();
-    let mut sequences = Vec::new();
+    let mut literals = Vec::with_capacity(data.len() / 4);
+    let mut sequences = Vec::with_capacity(data.len() / 32);
     let mut pending_lit_len = 0usize;
+    let mut invalid = false;
 
-    for event in events {
+    parse_with_sink(data, cfg, |event| {
+        if invalid {
+            return;
+        }
         match event {
             Event::Literals(start, end) => {
                 literals.extend_from_slice(&data[start..end]);
@@ -94,17 +97,20 @@ fn collect_sequences(data: &[u8], cfg: &super::MatchConfig) -> (Vec<u8>, Vec<Enc
                 let lit_len = pending_lit_len;
                 let Some((ll_code, ll_extra)) = encode_length_code(lit_len, &LITERALS_LENGTH_EXTRA)
                 else {
-                    return (data.to_vec(), Vec::new());
+                    invalid = true;
+                    return;
                 };
                 let Some((ml_code, ml_extra)) = encode_length_code(length, &MATCH_LENGTH_EXTRA)
                 else {
-                    return (data.to_vec(), Vec::new());
+                    invalid = true;
+                    return;
                 };
                 // Encode all offsets using the non-repeat path: raw_offset = offset + 3.
                 let raw_offset = offset + 3;
                 let of_code = usize::BITS as usize - 1 - raw_offset.leading_zeros() as usize;
                 if of_code >= OFFSET_DEFAULT_NORM.len() {
-                    return (data.to_vec(), Vec::new());
+                    invalid = true;
+                    return;
                 }
                 let of_extra = raw_offset - (1usize << of_code);
 
@@ -119,9 +125,13 @@ fn collect_sequences(data: &[u8], cfg: &super::MatchConfig) -> (Vec<u8>, Vec<Enc
                 pending_lit_len = 0;
             }
         }
-    }
+    });
 
-    (literals, sequences)
+    if invalid {
+        (data.to_vec(), Vec::new())
+    } else {
+        (literals, sequences)
+    }
 }
 
 fn encode_length_code(value: usize, table: &[(u32, u8)]) -> Option<(usize, u32)> {

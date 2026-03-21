@@ -233,8 +233,14 @@ pub enum Event {
 
 /// Run LZ77 on `data` and produce a sequence of events.
 pub fn parse(data: &[u8], cfg: &MatchConfig) -> Vec<Event> {
-    let mut finder = MatchFinder::new(cfg.clone());
     let mut events = Vec::new();
+    parse_with_sink(data, cfg, |event| events.push(event));
+    events
+}
+
+/// Run LZ77 on `data` and stream events to `sink`.
+pub fn parse_with_sink(data: &[u8], cfg: &MatchConfig, mut sink: impl FnMut(Event)) {
+    let mut finder = MatchFinder::new(cfg.clone());
     let mut pos = 0;
     let mut lit_start = 0;
 
@@ -247,9 +253,9 @@ pub fn parse(data: &[u8], cfg: &MatchConfig) -> Vec<Event> {
         match finder.find_match(data, pos) {
             Some(m) if m.length >= cfg.min_match => {
                 if pos > lit_start {
-                    events.push(Event::Literals(lit_start, pos));
+                    sink(Event::Literals(lit_start, pos));
                 }
-                events.push(Event::Match {
+                sink(Event::Match {
                     pos,
                     offset: m.offset,
                     length: m.length,
@@ -266,10 +272,8 @@ pub fn parse(data: &[u8], cfg: &MatchConfig) -> Vec<Event> {
     }
 
     if lit_start < data.len() {
-        events.push(Event::Literals(lit_start, data.len()));
+        sink(Event::Literals(lit_start, data.len()));
     }
-
-    events
 }
 
 #[cfg(test)]
