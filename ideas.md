@@ -1,5 +1,18 @@
 # Ideas
 
+## Remove a whole compress-side pass at level 3
+
+**Status:** Research direction from 2026-03-21 autoresearch loop
+**Context:** Several micro-optimizations improved the fast weighted benchmark by about 1-4%, and some of them stacked cleanly there, but the same stacked change did not clear the Silesia confirmation gate. The weighted suite moved from `2185.8` to `2276.5 MB/s` (`+4.15%`) with flat ratio, while Silesia level-3 compression only moved from `59.5` to `60.0 MB/s` (`+0.84%`).
+
+**Opportunity:** Stop chasing small inner-loop wins that mostly help the synthetic corpora. The more credible path is to remove whole units of work from the level-3 compression pipeline on long real files: avoid materializing intermediate structures, reduce second-pass walking of parse results, or skip entropy/sequence setup when it is unlikely to pay off.
+
+**Implementation notes:**
+- Focus on code that runs across long compressible files, not just tiny hot loops: `src/encoder/block.rs`, `src/encoder/lz77.rs`, and block-level decisions in `src/frame.rs`.
+- Strong candidates are changes like streaming LZ77 output directly into sequence/literal collection, reusing block scratch buffers across blocks, or adding a smarter early raw-block fallback that preserves ratio on executable/database-like inputs.
+- Treat weighted-only wins as suspicious until Silesia confirms them; longer-file behavior matters more than short synthetic cases.
+- Prefer changes that reduce allocations or whole passes over tweaks like wider compare chunks or lookup micro-optimizations.
+
 ## FSE-compressed Huffman weight encoding
 
 **Status:** Not yet implemented
