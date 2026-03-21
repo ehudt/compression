@@ -127,7 +127,16 @@ fn should_attempt_compressed_block(data: &[u8], cfg: &MatchConfig) -> bool {
 
 fn repeated_byte(data: &[u8]) -> Option<u8> {
     let (&first, rest) = data.split_first()?;
-    if rest.iter().all(|&byte| byte == first) {
+    let repeated_word = u64::from_ne_bytes([first; 8]);
+    let mut chunks = rest.chunks_exact(8);
+    for chunk in &mut chunks {
+        let word = unsafe { chunk.as_ptr().cast::<u64>().read_unaligned() };
+        if word != repeated_word {
+            return None;
+        }
+    }
+
+    if chunks.remainder().iter().all(|&byte| byte == first) {
         Some(first)
     } else {
         None
