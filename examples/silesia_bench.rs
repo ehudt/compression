@@ -971,7 +971,37 @@ fn detect_zstd_version() -> Result<String, String> {
         return Err(format!("zstd --version exited with {}", output.status));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(stdout.lines().next().unwrap_or("zstd").trim().to_string())
+    Ok(shorten_zstd_version(
+        stdout.lines().next().unwrap_or("zstd").trim(),
+    ))
+}
+
+fn shorten_zstd_version(version_line: &str) -> String {
+    let trimmed = version_line.trim();
+    if trimmed.is_empty() {
+        return "zstd".to_string();
+    }
+
+    if let Some(version) = trimmed
+        .split(|ch: char| ch.is_whitespace() || ch == ',' || ch == '*')
+        .find(|token| {
+            token.starts_with('v')
+                && token
+                    .chars()
+                    .nth(1)
+                    .is_some_and(|ch| ch.is_ascii_digit())
+        })
+    {
+        return format!("zstd {}", &version[1..]);
+    }
+
+    if let Some((name, version)) = trimmed.split_once(' ') {
+        if !name.is_empty() && !version.is_empty() {
+            return format!("{name} {version}");
+        }
+    }
+
+    trimmed.to_string()
 }
 
 fn run_command(command: &mut Command, action: &str) -> Result<(), String> {
@@ -986,16 +1016,62 @@ fn run_command(command: &mut Command, action: &str) -> Result<(), String> {
 }
 
 fn render_terminal_table(results: &[ResultRow]) -> String {
+    let name_header = "Compressor name";
+    let ratio_header = "Ratio";
+    let compression_header = "Compression";
+    let decompression_header = "Decompression";
+
+    let rows = results
+        .iter()
+        .map(|row| {
+            (
+                row.compressor_name.as_str(),
+                format_ratio(row.ratio),
+                format_speed(row.compression_mbps),
+                format_speed(row.decompression_mbps),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let name_width = rows
+        .iter()
+        .map(|(name, _, _, _)| name.len())
+        .max()
+        .unwrap_or(0)
+        .max(name_header.len());
+    let ratio_width = rows
+        .iter()
+        .map(|(_, ratio, _, _)| ratio.len())
+        .max()
+        .unwrap_or(0)
+        .max(ratio_header.len());
+    let compression_width = rows
+        .iter()
+        .map(|(_, _, compression, _)| compression.len())
+        .max()
+        .unwrap_or(0)
+        .max(compression_header.len());
+    let decompression_width = rows
+        .iter()
+        .map(|(_, _, _, decompression)| decompression.len())
+        .max()
+        .unwrap_or(0)
+        .max(decompression_header.len());
+
     let mut output = String::new();
-    output.push_str("| Compressor name | Ratio | Compression | Decompression |\n");
-    output.push_str("| --- | ---: | ---: | ---: |\n");
-    for row in results {
+    output.push_str(&format!(
+        "| {name_header:<name_width$} | {ratio_header:>ratio_width$} | {compression_header:>compression_width$} | {decompression_header:>decompression_width$} |\n"
+    ));
+    output.push_str(&format!(
+        "| {:-<name_width$} | {:-<ratio_width$} | {:-<compression_width$} | {:-<decompression_width$} |\n",
+        "",
+        "",
+        "",
+        "",
+    ));
+    for (name, ratio, compression, decompression) in rows {
         output.push_str(&format!(
-            "| {} | {} | {} | {} |\n",
-            row.compressor_name,
-            format_ratio(row.ratio),
-            format_speed(row.compression_mbps),
-            format_speed(row.decompression_mbps)
+            "| {name:<name_width$} | {ratio:>ratio_width$} | {compression:>compression_width$} | {decompression:>decompression_width$} |\n"
         ));
     }
     append_notes(&mut output, results);
@@ -1323,6 +1399,29 @@ fn append_notes(output: &mut String, results: &[ResultRow]) {
     output.push_str("\nFailures:\n");
     for (row, note) in failures {
         output.push_str(&format!("- {}: {}\n", row.compressor_name, note));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shorten_zstd_version;
+
+    #[test]
+    fn shortens_verbose_zstd_cli_banner() {
+        assert_eq!(
+            shorten_zstd_version("*** Zstandard CLI (64-bit) v1.5.5, by Yann Collet ***"),
+            "zstd 1.5.5"
+        );
+    }
+
+    #[test]
+    fn preserves_simple_name_and_version() {
+        assert_eq!(shorten_zstd_version("zstd 1.5.7"), "zstd 1.5.7");
+    }
+
+    #[test]
+    fn falls_back_to_plain_name() {
+        assert_eq!(shorten_zstd_version("zstd"), "zstd");
     }
 }
 
