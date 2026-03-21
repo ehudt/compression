@@ -53,7 +53,7 @@ Run the baseline exactly as the repo is today:
 
 ```bash
 LOG_DIR=$(mktemp -d /tmp/compression-autoresearch-XXXXXX)
-cargo bench --bench compression > "$LOG_DIR/bench.log" 2>&1
+cargo bench --bench weighted > "$LOG_DIR/bench.log" 2>&1
 cargo test --test acceptance -- --nocapture > "$LOG_DIR/acceptance.log" 2>&1
 ```
 
@@ -67,18 +67,22 @@ cargo run --release --example silesia_bench -- \
   > "$LOG_DIR/silesia.log" 2>&1
 ```
 
-Use the fast bench as the default signal. In this repo it covers:
+Use the weighted benchmark as the default signal for iterating during research.
+It produces three composite scores across 8 data categories (text, json, xml,
+source code, database, executable, medical image, random), weighted by
+real-world frequency:
 
-- `fast/compress`: `all_zeros/3`, `repetitive/3`, `binary_structured/3`, `random/1`
-- `fast/decompress`: the same four cases
-- `fast/roundtrip`: `repetitive_level3`, `random_level1`
+- **weighted_ratio** — weighted average compression ratio (lower is better)
+- **weighted_compress_mb_s** — weighted average compression throughput
+- **weighted_decompress_mb_s** — weighted average decompression throughput
 
-The bench also prints a ratio table for those cases near the top of `$LOG_DIR/bench.log`.
+Only when you are ready to commit/keep a change, run the Silesia benchmark to
+get the official numbers for the record.
 
 Useful extracts:
 
 ```bash
-rg -n "Compression ratio summary|fast/(compress|decompress|roundtrip)|thrpt:" "$LOG_DIR/bench.log"
+grep -A5 "\\[weighted-benchmark\\]" "$LOG_DIR/bench.log"
 tail -n 40 "$LOG_DIR/acceptance.log"
 ```
 
@@ -86,12 +90,12 @@ tail -n 40 "$LOG_DIR/acceptance.log"
 
 Keep a change only if all of these are true:
 
-- `cargo bench --bench compression` completes successfully
+- `cargo bench --bench weighted` completes successfully
 - `cargo test --test acceptance -- --nocapture` passes, or skips only because `zstd` is unavailable
-- The result is a real improvement in compression ratio, throughput, or both
+- The weighted scores show a real improvement in ratio, throughput, or both
 - The tradeoff is defensible
 
-Before merging or treating a result as validated, also require the full Silesia
+Before committing or treating a result as validated, also require the full Silesia
 benchmark with `--implementation ours` to complete successfully.
 
 Tradeoff rules for this repo:
@@ -101,14 +105,14 @@ Tradeoff rules for this repo:
 - Regressing `random/1` badly is usually a red flag, because it exercises the near-incompressible path.
 - Simpler code wins ties.
 
-If a change is ambiguous, run the full sweep before deciding:
+If a change is ambiguous, run the full weighted sweep before deciding:
 
 ```bash
-ZSTD_RS_FULL_BENCHES=1 cargo bench --bench compression > "$LOG_DIR/bench-full.log" 2>&1
+ZSTD_RS_FULL_BENCHES=1 cargo bench --bench weighted > "$LOG_DIR/bench-full.log" 2>&1
 ```
 
-If a change looks worth keeping after the fast bench and acceptance tests, run
-the full Silesia benchmark before finalizing the decision:
+If a change looks worth keeping after the weighted benchmark and acceptance
+tests, run the full Silesia benchmark before committing:
 
 ```bash
 cargo run --release --example silesia_bench -- \
@@ -159,10 +163,10 @@ Loop autonomously once setup is complete:
 1. Inspect the current commit and the last accepted result.
 2. Choose one concrete idea.
 3. Edit only the code needed for that idea.
-4. Run the fast benchmark and save the log.
-5. If the benchmark crashes or the numbers clearly regress, discard the idea immediately.
-6. If the benchmark looks promising, run acceptance tests.
-7. If the change still looks worth keeping, run the full Silesia benchmark with `--implementation ours`.
+4. Run the weighted benchmark and save the log.
+5. If the benchmark crashes or the weighted scores clearly regress, discard the idea immediately.
+6. If the weighted scores look promising, run acceptance tests.
+7. If the change still looks worth keeping, run the full Silesia benchmark with `--implementation ours` before committing.
 8. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
 9. Log the outcome in `results.tsv`.
 10. Keep the commit only if the result clears the acceptance criteria; otherwise revert to the previous accepted commit.
@@ -191,8 +195,8 @@ The very first run is always the untouched baseline.
 Prefer this order of evidence:
 
 1. Correctness and interoperability
-2. Fast benchmark trend across the four default corpora
-3. Full Silesia results for our implementation
+2. Weighted benchmark scores (ratio, compress MB/s, decompress MB/s)
+3. Full Silesia results for our implementation (final gate before committing)
 4. Ratio table changes on compressible inputs
 5. Profiling evidence that explains the result
 6. Full benchmark sweep when the fast signal is promising but incomplete

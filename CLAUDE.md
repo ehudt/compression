@@ -27,6 +27,7 @@ cargo test               # unit tests + integration tests + doctests (must all p
 cargo test --test integration  # integration tests only
 cargo test --test acceptance   # interoperability tests against system zstd (see below)
 cargo bench              # Fast signal benchmark (speed + ratio)
+cargo bench --bench weighted        # Weighted composite benchmark (one score per metric)
 cargo bench --bench squash          # Squash-style multi-corpus benchmark
 ZSTD_RS_FULL_BENCHES=1 cargo bench  # exhaustive all-level benchmark sweep
 cargo run --release --example silesia_bench -- --download  # Silesia benchmark vs official zstd + SVG
