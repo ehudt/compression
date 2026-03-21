@@ -39,7 +39,7 @@ Currently the encoder only implements direct mode. When data uses more than 128 
 **Opportunity:** Implement a benchmark that runs our encoder/decoder on the Silesia corpus and reports the same three metrics (ratio, compression MB/s, decompression MB/s) in the same tabular format, making it easy to compare our implementation against the reference C zstd and other compressors.
 
 **Implementation notes:**
-- Download the Silesia corpus (211 MB, 12 files covering text, executables, databases, images, etc.) and cache it locally (e.g., `benches/data/silesia/`; gitignore the directory).
+- Download the Silesia corpus (211 MB, 12 files covering text, executables, databases, images, etc.) and cache it locally (e.g., `~/silesia/`).
 - Measure in-memory throughput: time the compress/decompress functions directly, not including I/O, to match lzbench methodology.
 - Report per-file and aggregate results in the same `| Compressor | Ratio | Compress | Decompress |` table format.
 - Run across all levels (or a representative subset like 1, 3, 9, 19) to show the speed-vs-ratio tradeoff.

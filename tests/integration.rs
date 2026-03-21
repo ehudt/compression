@@ -31,7 +31,7 @@ fn profile_test(test_name: &str) -> ProfileSession {
 }
 
 fn silesia_dickens() -> &'static [u8] {
-    include_bytes!("../benches/data/silesia/dickens")
+    include_bytes!(concat!(env!("HOME"), "/silesia/dickens"))
 }
 
 // ── Empty / trivial ──────────────────────────────────────────────────────────

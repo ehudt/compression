@@ -37,7 +37,12 @@ Do not start by editing the benchmark harness or tests unless the task is explic
 2. Confirm the worktree is otherwise clean enough to experiment safely.
 3. Use the tracked `results.tsv` file as the default experiment log.
 4. Create a unique temp log directory outside the repo, for example with `LOG_DIR=$(mktemp -d /tmp/compression-autoresearch-XXXXXX)`, and write all benchmark/test logs there.
-5. Establish the baseline before making any code changes.
+5. Download the Silesia corpus (needed for integration tests to compile):
+   ```bash
+   cargo run --release --example silesia_bench -- --download --implementation ours --levels 1 2>/dev/null
+   ```
+   This populates `~/silesia/` which `tests/integration.rs` depends on at compile time via `include_bytes!`.
+6. Establish the baseline before making any code changes.
 
 Suggested TSV header:
 

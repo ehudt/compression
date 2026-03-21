@@ -215,7 +215,7 @@ cargo run --release --example silesia_bench -- --download --implementation both
 
 This benchmark:
 
-- caches the Silesia corpus under `benches/data/silesia/`
+- caches the Silesia corpus under `~/silesia/`
 - benchmarks both `zstd_rs` and the system `zstd` CLI at levels `1,3,9,19`
 - writes a README-style markdown table to `docs/benchmarks/silesia-comparison.md`
 - writes raw results to `docs/benchmarks/silesia-comparison.json`
@@ -231,7 +231,7 @@ Useful flags:
 
 ```bash
 cargo run --release --example silesia_bench -- \
-  --corpus-dir benches/data/silesia \
+  --corpus-dir ~/silesia \
   --output-dir docs/benchmarks \
   --implementation both \
   --levels 1,3,9,19 \

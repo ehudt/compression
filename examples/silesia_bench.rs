@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use zstd_rs::{compress, decompress};
 
-const DEFAULT_CORPUS_DIR: &str = "benches/data/silesia";
+const DEFAULT_CORPUS_DIR: &str = "~/silesia";
 const DEFAULT_OUTPUT_DIR: &str = "docs/benchmarks";
 const DEFAULT_LEVELS: &[i32] = &[1, 3, 9, 19];
 const DEFAULT_MIN_BENCH_MS: u64 = 750;
@@ -141,7 +141,7 @@ struct Config {
 
 impl Config {
     fn parse(args: impl Iterator<Item = String>) -> Result<Self, String> {
-        let mut corpus_dir = PathBuf::from(DEFAULT_CORPUS_DIR);
+        let mut corpus_dir = expand_tilde(DEFAULT_CORPUS_DIR);
         let mut output_dir = PathBuf::from(DEFAULT_OUTPUT_DIR);
         let mut levels = DEFAULT_LEVELS.to_vec();
         let mut min_bench_ms = DEFAULT_MIN_BENCH_MS;
@@ -157,7 +157,7 @@ impl Config {
                     let value = args
                         .next()
                         .ok_or_else(|| "--corpus-dir requires a path".to_string())?;
-                    corpus_dir = PathBuf::from(value);
+                    corpus_dir = expand_tilde(&value);
                 }
                 "--output-dir" => {
                     let value = args
@@ -399,6 +399,15 @@ fn corpus_cache_needs_refresh(dir: &Path) -> Result<bool, String> {
     }
 
     Ok(!saw_file)
+}
+
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = env::var("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    PathBuf::from(path)
 }
 
 fn download_silesia_corpus(dest_dir: &Path) -> Result<(), String> {

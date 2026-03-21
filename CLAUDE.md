@@ -87,7 +87,7 @@ Useful flags:
 
 ```bash
 cargo run --release --example silesia_bench -- \
-  --corpus-dir benches/data/silesia \
+  --corpus-dir ~/silesia \
   --output-dir docs/benchmarks \
   --implementation both \
   --levels 1,3,9,19 \
