@@ -189,16 +189,43 @@ Loop autonomously once setup is complete:
 2. Choose one concrete idea — think big, aim for algorithmic wins.
 3. Edit only the code needed for that idea.
 4. Run the weighted benchmark and save the log.
-5. **Gate 1 check**: compare composite scores against the baseline.
-   - If any score regresses > 1%, or no score improves ≥ 3% → **discard immediately**.
-   - If ≥ 3% improvement with no regression > 1% → proceed.
+5. **Gate 1 check**: compare composite scores against the **original baseline**
+   (the baseline established in setup, not an intermediate stacked state).
+   - If any score regresses > 1% → **discard immediately**.
+   - If at least one score improves **≥ 3%** with no regression > 1% → proceed
+     to Gate 2.
+   - If improvement is **1–3%** (promising but below the gate) → enter the
+     **stacking phase** (see below).
+   - If improvement is **< 1%** → **discard immediately**.
 6. Run acceptance tests (`cargo test --test acceptance -- --nocapture`).
 7. **Gate 2**: run the full Silesia benchmark with `--implementation ours`.
    - If the improved metric does not confirm ≥ 2% on Silesia → **discard**.
    - If confirmed → keep.
 8. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
 9. Log the outcome in `results.tsv`, including the percentage changes.
-10. Keep the commit only if it cleared both gates; otherwise revert to the previous accepted commit.
+10. Keep the commit only if it cleared both gates; otherwise revert to the
+    **original baseline** (not an intermediate stacked state).
+
+### Stacking phase
+
+Small wins (1–3%) are not worthless — they may combine into a significant
+improvement. When a change shows 1–3% improvement on the weighted benchmark:
+
+1. **Do not discard it yet.** Keep the code changes in your working tree.
+2. Try to stack a complementary idea on top (e.g., if you improved match
+   finding, now try reducing copy overhead in the same hot path).
+3. After each stacking attempt, re-run the weighted benchmark and compare
+   against the **original baseline** — not the intermediate state.
+4. If the combined changes now clear ≥ 3% on at least one metric → proceed
+   to Gate 2 as normal.
+5. If after **3 stacking attempts** the combined total still does not clear
+   3%, **discard the entire stack** and revert to the original baseline.
+   Log it as `discard (stacked, X% total, below gate)`.
+
+Stacking rules:
+- Each stacked idea should be complementary, not a retry of the same approach.
+- Always measure against the original baseline, never against intermediate states.
+- Do not stack more than 3 ideas before either clearing the gate or discarding.
 
 The very first run is always the untouched baseline.
 
