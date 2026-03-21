@@ -259,3 +259,15 @@ Descriptions should be brief and concrete, for example:
 ## Stop Condition
 
 The loop is autonomous. Do not stop to ask whether to continue once the user has started a research run. Keep iterating until the user interrupts or a hard blocker makes further progress non-credible.
+
+**Discards are normal, not a reason to stop.** The two-gate system is designed
+to reject most ideas — that is working as intended. After a discard, go back to
+step 1 of the experiment loop and try a different idea. Use profiling, re-read
+hot paths, or try a completely different approach. Consecutive discards mean you
+need better ideas, not that you should give up.
+
+A "hard blocker" means something like: the build is broken and you cannot fix
+it, or the test suite has an unrelated failure you cannot work around. It does
+**not** mean "I tried a few things and they didn't clear the bar."
+
+Aim for at least 8–10 experiment iterations per research run.
