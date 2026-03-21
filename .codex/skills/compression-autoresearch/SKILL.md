@@ -91,33 +91,36 @@ grep -A5 "\\[weighted-benchmark\\]" "$LOG_DIR/bench.log"
 tail -n 40 "$LOG_DIR/acceptance.log"
 ```
 
-## Acceptance Criteria
+## Acceptance Criteria — Two-Gate System
 
-Keep a change only if all of these are true:
+Think BIG. Do not keep micro-optimizations. The goal is meaningful algorithmic
+wins, not shuffling code for a 0.5% blip.
+
+### Gate 1: Weighted benchmark (fast iteration signal)
+
+A change is **promising enough to validate** only if ALL of these are true:
 
 - `cargo bench --bench weighted` completes successfully
 - `cargo test --test acceptance -- --nocapture` passes, or skips only because `zstd` is unavailable
-- The weighted scores show a real improvement in ratio, throughput, or both
-- The tradeoff is defensible
+- **At least one** composite score (weighted_ratio, weighted_compress_mb_s,
+  weighted_decompress_mb_s) improves by **≥ 3%** compared to the current baseline
+- **No** composite score regresses by **> 1%**
 
-Before committing or treating a result as validated, also require the full Silesia
-benchmark with `--implementation ours` to complete successfully.
+If the weighted benchmark shows < 3% improvement on every metric, **discard
+the change immediately**. Do not run Silesia. Do not keep it "just in case."
+Go back to the drawing board and try a bigger idea.
 
-Tradeoff rules for this repo:
-
-- A ratio win on `repetitive` or `binary_structured` data is valuable only if throughput does not regress badly on the fast cases.
-- A throughput win is valuable only if compressed size does not materially worsen on compressible inputs.
-- Regressing `random/1` badly is usually a red flag, because it exercises the near-incompressible path.
-- Simpler code wins ties.
-
-If a change is ambiguous, run the full weighted sweep before deciding:
+If a change is ambiguous or borderline, run the full weighted sweep for a
+clearer signal before deciding:
 
 ```bash
 ZSTD_RS_FULL_BENCHES=1 cargo bench --bench weighted > "$LOG_DIR/bench-full.log" 2>&1
 ```
 
-If a change looks worth keeping after the weighted benchmark and acceptance
-tests, run the full Silesia benchmark before committing:
+### Gate 2: Silesia benchmark (real-data confirmation)
+
+Only run this gate after a change clears Gate 1. Run the full Silesia
+benchmark with our implementation:
 
 ```bash
 cargo run --release --example silesia_bench -- \
@@ -125,6 +128,23 @@ cargo run --release --example silesia_bench -- \
   --implementation ours \
   > "$LOG_DIR/silesia.log" 2>&1
 ```
+
+Keep the change only if:
+
+- The Silesia benchmark completes successfully
+- The **same metric** that triggered Gate 1 shows **≥ 2% improvement** on the
+  real Silesia corpus compared to the baseline Silesia run
+- No other metric regresses by > 1% on Silesia
+
+If Silesia does not confirm the improvement at ≥ 2%, **discard the change**.
+The weighted benchmark was a false signal — move on.
+
+### Tradeoff rules
+
+- A ratio win on `repetitive` or `binary_structured` data is valuable only if throughput does not regress badly on the fast cases.
+- A throughput win is valuable only if compressed size does not materially worsen on compressible inputs.
+- Regressing `random/1` badly is usually a red flag, because it exercises the near-incompressible path.
+- Simpler code wins ties.
 
 ## Profiling Loop
 
@@ -166,15 +186,19 @@ Profile first, then change code. Do not cargo-cult micro-optimizations.
 Loop autonomously once setup is complete:
 
 1. Inspect the current commit and the last accepted result.
-2. Choose one concrete idea.
+2. Choose one concrete idea — think big, aim for algorithmic wins.
 3. Edit only the code needed for that idea.
 4. Run the weighted benchmark and save the log.
-5. If the benchmark crashes or the weighted scores clearly regress, discard the idea immediately.
-6. If the weighted scores look promising, run acceptance tests.
-7. If the change still looks worth keeping, run the full Silesia benchmark with `--implementation ours` before committing.
+5. **Gate 1 check**: compare composite scores against the baseline.
+   - If any score regresses > 1%, or no score improves ≥ 3% → **discard immediately**.
+   - If ≥ 3% improvement with no regression > 1% → proceed.
+6. Run acceptance tests (`cargo test --test acceptance -- --nocapture`).
+7. **Gate 2**: run the full Silesia benchmark with `--implementation ours`.
+   - If the improved metric does not confirm ≥ 2% on Silesia → **discard**.
+   - If confirmed → keep.
 8. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
-9. Log the outcome in `results.tsv`.
-10. Keep the commit only if the result clears the acceptance criteria; otherwise revert to the previous accepted commit.
+9. Log the outcome in `results.tsv`, including the percentage changes.
+10. Keep the commit only if it cleared both gates; otherwise revert to the previous accepted commit.
 
 The very first run is always the untouched baseline.
 
