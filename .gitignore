@@ -5,4 +5,4 @@
 /docs/benchmarks/*.md
 /docs/benchmarks/*.json
 /.claude/
-/.codex/
+/.codex/worktrees/
