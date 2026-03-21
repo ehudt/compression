@@ -229,6 +229,20 @@ Stacking rules:
 
 The very first run is always the untouched baseline.
 
+## Ideas file
+
+Read `ideas.md` at the start of every research run. It contains experiment
+directions, learnings, and context from previous research sessions.
+
+- **Before choosing an idea**, check `ideas.md` for promising directions or
+  warnings about approaches that were already tried.
+- **After each experiment** (keep or discard), update `ideas.md` if you learned
+  something that would help a future agent — e.g., a new research direction
+  that emerged, a dead end worth documenting, or a refinement of an existing
+  idea. Keep entries concise and actionable.
+- Do not duplicate `results.tsv` data into `ideas.md`. The ideas file is for
+  strategic context, not raw numbers.
+
 ## Good Experiment Ideas
 
 - Improve LZ77 match search quality without exploding search cost
@@ -259,7 +273,7 @@ Prefer this order of evidence:
 
 If you cannot explain a result, do not trust it yet.
 
-## Logging
+## Logging and committing
 
 Use one TSV row per experiment, including discarded ideas. Suggested status values:
 
@@ -274,6 +288,12 @@ Descriptions should be brief and concrete, for example:
 - `shorter hash-chain walk on random path`
 - `reuse literal scratch buffer`
 - `raw-block fallback earlier for incompressible input`
+
+**Always commit your work.** At the end of each research run — or periodically
+during long runs — commit `results.tsv` and `ideas.md` even if every experiment
+was discarded. The log of what was tried and what was learned is valuable to
+future agents. Use a commit message like
+`Update autoresearch results and ideas (N experiments, M kept)`.
 
 ## Safety
 
