@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -39,18 +40,38 @@ fn run() -> Result<(), String> {
     let mut results = Vec::new();
     let official_version = detect_zstd_version().unwrap_or_else(|_| "zstd".to_string());
     let ours_name = format!("zstd_rs {}", env!("CARGO_PKG_VERSION"));
+    let implementations_per_level = usize::from(config.implementation.includes_ours())
+        + usize::from(config.implementation.includes_official());
+    let total_runs = config.levels.len() * implementations_per_level;
+    let mut completed_runs = 0usize;
 
     for &level in &config.levels {
         if config.implementation.includes_ours() {
-            results.push(benchmark_ours(level, &ours_name, &corpus, &config));
+            print_progress(
+                completed_runs,
+                total_runs,
+                &format!("running {ours_name} level {level}"),
+            )?;
+            let result = benchmark_ours(level, &ours_name, &corpus, &config);
+            completed_runs += 1;
+            print_result_summary(completed_runs, total_runs, &result);
+            results.push(result);
         }
         if config.implementation.includes_official() {
-            results.push(benchmark_official(
+            print_progress(
+                completed_runs,
+                total_runs,
+                &format!("running {official_version} level {level}"),
+            )?;
+            let result = benchmark_official(
                 level,
                 &official_version,
                 &corpus,
                 &config,
-            ));
+            );
+            completed_runs += 1;
+            print_result_summary(completed_runs, total_runs, &result);
+            results.push(result);
         }
     }
 
@@ -256,6 +277,31 @@ fn parse_positive_usize(flag: &str, value: &str) -> Result<usize, String> {
         .ok()
         .filter(|value| *value > 0)
         .ok_or_else(|| format!("{flag} must be a positive integer"))
+}
+
+fn print_progress(completed_runs: usize, total_runs: usize, message: &str) -> Result<(), String> {
+    println!("[{}/{}] {}", completed_runs + 1, total_runs, message);
+    io::stdout()
+        .flush()
+        .map_err(|err| format!("failed to flush benchmark progress output: {err}"))
+}
+
+fn print_result_summary(completed_runs: usize, total_runs: usize, result: &ResultRow) {
+    match &result.note {
+        Some(note) => println!(
+            "[{}/{}] {} failed: {}",
+            completed_runs, total_runs, result.compressor_name, note
+        ),
+        None => println!(
+            "[{}/{}] {} done: ratio {}, comp {}, decomp {}",
+            completed_runs,
+            total_runs,
+            result.compressor_name,
+            format_ratio(result.ratio),
+            format_speed(result.compression_mbps),
+            format_speed(result.decompression_mbps)
+        ),
+    }
 }
 
 fn parse_levels(value: &str) -> Result<Vec<i32>, String> {
