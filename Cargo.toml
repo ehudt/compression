@@ -18,6 +18,10 @@ harness = false
 name = "squash"
 harness = false
 
+[[bench]]
+name = "weighted"
+harness = false
+
 [[bin]]
 name = "zstd_rs"
 path = "src/main.rs"
