@@ -193,16 +193,21 @@ impl MatchFinder {
 
 #[inline]
 fn load_u32(data: &[u8], pos: usize) -> u32 {
-    u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap())
+    debug_assert!(pos + 4 <= data.len());
+    unsafe { u32::from_le(data.as_ptr().add(pos).cast::<u32>().read_unaligned()) }
+}
+
+#[inline]
+fn load_u64(data: &[u8], pos: usize) -> u64 {
+    debug_assert!(pos + 8 <= data.len());
+    unsafe { u64::from_le(data.as_ptr().add(pos).cast::<u64>().read_unaligned()) }
 }
 
 #[inline]
 fn match_length(data: &[u8], cand_pos: usize, pos: usize, max_len: usize) -> usize {
     let mut len = 4;
 
-    while len + 8 <= max_len
-        && data[cand_pos + len..cand_pos + len + 8] == data[pos + len..pos + len + 8]
-    {
+    while len + 8 <= max_len && load_u64(data, cand_pos + len) == load_u64(data, pos + len) {
         len += 8;
     }
 
