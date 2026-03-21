@@ -12,14 +12,12 @@ use crate::error::{Result, ZstdError};
 /// `data`    — raw block bytes (after the 3-byte block header).
 /// `block_type` — 0=raw, 1=RLE, 2=compressed.
 /// `block_size` — declared regenerated size for RLE blocks.
-/// `history`  — decompressed bytes from previous blocks (sliding window).
 /// `repeat_offsets` — FSE repeat-offset state, maintained across blocks in a frame.
 /// `output`   — destination buffer.
 pub fn decode_block(
     data: &[u8],
     block_type: u8,
     block_size: usize,
-    history: &[u8],
     repeat_offsets: &mut [usize; 3],
     output: &mut Vec<u8>,
 ) -> Result<()> {
@@ -39,7 +37,7 @@ pub fn decode_block(
         }
         2 => {
             // Compressed block
-            decode_compressed_block(data, history, repeat_offsets, output)
+            decode_compressed_block(data, repeat_offsets, output)
         }
         3 => Err(ZstdError::InvalidBlockType(3)),
         _ => Err(ZstdError::InvalidBlockType(block_type)),
@@ -48,7 +46,6 @@ pub fn decode_block(
 
 fn decode_compressed_block(
     data: &[u8],
-    history: &[u8],
     repeat_offsets: &mut [usize; 3],
     output: &mut Vec<u8>,
 ) -> Result<()> {
@@ -62,5 +59,5 @@ fn decode_compressed_block(
     let (sequences, _) = decode_sequences_with_offsets(seq_data, repeat_offsets)?;
 
     // Execute sequences
-    execute_sequences(&sequences, &literals, history, output)
+    execute_sequences(&sequences, &literals, output)
 }

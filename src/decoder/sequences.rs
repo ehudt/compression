@@ -303,11 +303,9 @@ fn decode_sequence_bitstream(
 /// Apply decoded sequences to reconstruct the original data.
 ///
 /// `literals` is the decoded literals buffer.
-/// `history` is the previous decompressed data (window).
 pub fn execute_sequences(
     sequences: &[Sequence],
     literals: &[u8],
-    history: &[u8],
     output: &mut Vec<u8>,
 ) -> Result<()> {
     let mut lit_pos = 0usize;
@@ -327,24 +325,17 @@ pub fn execute_sequences(
         }
 
         let current_len = output.len();
-        let total_available = current_len + history.len();
-        if seq.offset > total_available {
+        if seq.offset > current_len {
             return Err(ZstdError::CorruptData("offset exceeds available history"));
         }
 
         // The back-reference may overlap with what we're currently writing (self-referential)
         for i in 0..seq.match_length {
             let back_pos = current_len + i;
-            let src_pos = back_pos as isize - seq.offset as isize;
-            let byte = if src_pos < 0 {
-                let hist_pos = (history.len() as isize + src_pos) as usize;
-                if hist_pos >= history.len() {
-                    return Err(ZstdError::CorruptData("history reference out of bounds"));
-                }
-                history[hist_pos]
-            } else {
-                output[src_pos as usize]
-            };
+            let src_pos = back_pos
+                .checked_sub(seq.offset)
+                .ok_or(ZstdError::CorruptData("history reference out of bounds"))?;
+            let byte = output[src_pos];
             output.push(byte);
         }
     }

@@ -66,7 +66,7 @@ fn validate_sequences(original: &[u8], literals: &[u8], seq_section: &[u8]) -> b
             return false;
         };
         let mut reconstructed = Vec::new();
-        if execute_sequences(&decoded, literals, &[], &mut reconstructed).is_err() {
+        if execute_sequences(&decoded, literals, &mut reconstructed).is_err() {
             return false;
         }
         reconstructed == original

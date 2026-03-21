@@ -63,17 +63,29 @@ pub fn compress_with_config(
         let block_data = &input[pos..block_end];
         let is_last = block_end == input.len();
 
-        let compressed = if should_attempt_compressed_block(block_data, cfg) {
+        let repeated_byte = repeated_byte(block_data);
+        let compressed = if repeated_byte.is_none() && should_attempt_compressed_block(block_data, cfg)
+        {
             Some(encode_block(block_data, cfg)?)
         } else {
             None
         };
 
-        let use_compressed = compressed
-            .as_ref()
-            .is_some_and(|payload| payload.len() < block_data.len());
-        let block_type = if use_compressed { 2 } else { 0 };
-        let block_size = if use_compressed {
+        let use_rle = repeated_byte.is_some();
+        let use_compressed = !use_rle
+            && compressed
+                .as_ref()
+                .is_some_and(|payload| payload.len() < block_data.len());
+        let block_type = if use_rle {
+            1
+        } else if use_compressed {
+            2
+        } else {
+            0
+        };
+        let block_size = if use_rle {
+            block_data.len()
+        } else if use_compressed {
             compressed.as_ref().unwrap().len()
         } else {
             block_data.len()
@@ -83,7 +95,9 @@ pub fn compress_with_config(
         let header_val: u32 =
             (is_last as u32) | ((block_type as u32) << 1) | ((block_size as u32) << 3);
         out.extend_from_slice(&header_val.to_le_bytes()[..3]);
-        if use_compressed {
+        if let Some(byte) = repeated_byte {
+            out.push(byte);
+        } else if use_compressed {
             out.extend_from_slice(compressed.as_ref().unwrap());
         } else {
             out.extend_from_slice(block_data);
@@ -109,6 +123,15 @@ pub fn compress_with_config(
 
 fn should_attempt_compressed_block(data: &[u8], cfg: &MatchConfig) -> bool {
     !looks_incompressible(data, cfg)
+}
+
+fn repeated_byte(data: &[u8]) -> Option<u8> {
+    let (&first, rest) = data.split_first()?;
+    if rest.iter().all(|&byte| byte == first) {
+        Some(first)
+    } else {
+        None
+    }
 }
 
 fn looks_incompressible(data: &[u8], cfg: &MatchConfig) -> bool {
@@ -251,19 +274,17 @@ pub fn decompress(input: &[u8]) -> Result<Vec<u8>> {
         let block_type = ((header_val >> 1) & 0x3) as u8;
         let block_size = (header_val >> 3) as usize;
 
-        if pos + block_size > input.len() {
+        let payload_size = if block_type == 1 { 1 } else { block_size };
+        if pos + payload_size > input.len() {
             return Err(ZstdError::UnexpectedEof);
         }
-        let block_data = &input[pos..pos + block_size];
-        pos += block_size;
+        let block_data = &input[pos..pos + payload_size];
+        pos += payload_size;
 
-        let history_start = output.len().saturating_sub(128 * 1024);
-        let history = output[history_start..].to_vec();
         decode_block(
             block_data,
             block_type,
             block_size,
-            &history,
             &mut repeat_offsets,
             &mut output,
         )?;
