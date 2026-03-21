@@ -4,3 +4,5 @@
 /docs/benchmarks/*.svg
 /docs/benchmarks/*.md
 /docs/benchmarks/*.json
+/.claude/
+/.codex/
