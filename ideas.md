@@ -27,6 +27,12 @@ These patterns emerged from the results tracked in `results.tsv`:
   compress gain, but Silesia level-1 compress only moved +0.6% while Silesia
   decompression regressed by ~2.3%. Treat weighted gains on metrics the patch
   does not directly touch as suspect until Silesia confirms them.
+- **Literal bookkeeping can also false-positive on weighted.** Deferring
+  literal materialization and folding frequency counting into a final copy pass
+  improved weighted compress by `+7.11%`, but Silesia compress slipped from
+  `50.9` to `50.4 MB/s` at level 1 and stayed below the gate at higher levels.
+  Short synthetic corpora overstated the value of extra range bookkeeping in
+  the block encoder.
 - **Random-data fast path was the single biggest win.** Sampling-based
   incompressible detection took random/1 compress from ~48 MiB/s to ~9.8 GiB/s
   (200x). This is a structural shortcut, not a micro-optimization.
@@ -48,6 +54,11 @@ These patterns emerged from the results tracked in `results.tsv`:
 **Implementation notes:**
 - Focus on code that runs across long compressible files, not just tiny hot loops: `src/encoder/block.rs`, `src/encoder/lz77.rs`, and block-level decisions in `src/frame.rs`.
 - Streaming parse events worked; adjacent ideas worth trying next are scratch-buffer reuse across blocks and avoiding needless fallback copies when a block is abandoned.
+- Porting the same structural win onto `origin/main` still cleared both gates
+  when paired with precomputed length/offset lookup tables and cached FSE
+  transition tables: weighted compress moved from `2191.5` to `2312.4 MB/s`
+  (`+5.51%`), and Silesia level-1/3 compress moved from `50.9/51.1` to
+  `75.7/75.5 MB/s` with flat ratio.
 - Treat weighted-only wins as suspicious until Silesia confirms them; longer-file behavior matters more than short synthetic cases.
 - Prefer changes that reduce allocations or whole passes over tweaks like wider compare chunks or lookup micro-optimizations.
 

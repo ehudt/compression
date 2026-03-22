@@ -231,15 +231,59 @@ pub enum Event {
     },
 }
 
+pub trait ParseSink {
+    fn literals(&mut self, start: usize, end: usize);
+    fn matched(&mut self, pos: usize, offset: usize, length: usize);
+}
+
+impl<T: ParseSink + ?Sized> ParseSink for &mut T {
+    fn literals(&mut self, start: usize, end: usize) {
+        (**self).literals(start, end);
+    }
+
+    fn matched(&mut self, pos: usize, offset: usize, length: usize) {
+        (**self).matched(pos, offset, length);
+    }
+}
+
+struct EventSink<'a> {
+    events: &'a mut Vec<Event>,
+}
+
+impl ParseSink for EventSink<'_> {
+    fn literals(&mut self, start: usize, end: usize) {
+        self.events.push(Event::Literals(start, end));
+    }
+
+    fn matched(&mut self, pos: usize, offset: usize, length: usize) {
+        self.events.push(Event::Match {
+            pos,
+            offset,
+            length,
+        });
+    }
+}
+
 /// Run LZ77 on `data` and produce a sequence of events.
 pub fn parse(data: &[u8], cfg: &MatchConfig) -> Vec<Event> {
     let mut events = Vec::new();
-    parse_with_sink(data, cfg, |event| events.push(event));
+    parse_with_sink(
+        data,
+        cfg,
+        EventSink {
+            events: &mut events,
+        },
+    );
     events
 }
 
 /// Run LZ77 on `data` and stream events to `sink`.
-pub fn parse_with_sink(data: &[u8], cfg: &MatchConfig, mut sink: impl FnMut(Event)) {
+pub fn parse_with_sink(data: &[u8], cfg: &MatchConfig, sink: impl ParseSink) {
+    parse_ranges(data, cfg, sink);
+}
+
+/// Run LZ77 on `data`, streaming literal ranges and matches through `sink`.
+pub fn parse_ranges(data: &[u8], cfg: &MatchConfig, mut sink: impl ParseSink) {
     let mut finder = MatchFinder::new(cfg.clone());
     let mut pos = 0;
     let mut lit_start = 0;
@@ -253,13 +297,9 @@ pub fn parse_with_sink(data: &[u8], cfg: &MatchConfig, mut sink: impl FnMut(Even
         match finder.find_match(data, pos) {
             Some(m) if m.length >= cfg.min_match => {
                 if pos > lit_start {
-                    sink(Event::Literals(lit_start, pos));
+                    sink.literals(lit_start, pos);
                 }
-                sink(Event::Match {
-                    pos,
-                    offset: m.offset,
-                    length: m.length,
-                });
+                sink.matched(pos, m.offset, m.length);
                 // Skip matched positions (already inserted current pos)
                 finder.skip(data, pos + 1, m.length - 1);
                 pos += m.length;
@@ -272,7 +312,7 @@ pub fn parse_with_sink(data: &[u8], cfg: &MatchConfig, mut sink: impl FnMut(Even
     }
 
     if lit_start < data.len() {
-        sink(Event::Literals(lit_start, data.len()));
+        sink.literals(lit_start, data.len());
     }
 }
 
