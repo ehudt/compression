@@ -216,10 +216,10 @@ fn encode_sequences(sequences: &[EncodedSequence]) -> Vec<u8> {
     let ll_table = literal_length_encoder();
     let of_table = offset_encoder();
     let ml_table = match_length_encoder();
-
-    let (ll_states, ll_trans) = build_state_path(ll_table, sequences, |sequence| sequence.ll_code);
-    let (of_states, of_trans) = build_state_path(of_table, sequences, |sequence| sequence.of_code);
-    let (ml_states, ml_trans) = build_state_path(ml_table, sequences, |sequence| sequence.ml_code);
+    let last = sequences[sequences.len() - 1];
+    let mut ll_state = ll_table.initial_state(last.ll_code);
+    let mut of_state = of_table.initial_state(last.of_code);
+    let mut ml_state = ml_table.initial_state(last.ml_code);
 
     let mut out = Vec::new();
     write_sequence_count(&mut out, sequences.len());
@@ -237,12 +237,21 @@ fn encode_sequences(sequences: &[EncodedSequence]) -> Vec<u8> {
         // (reading MSB-first) sees extras before transitions for each sequence.
         // Transition write order (lowest→highest): OF, ML, LL → decoder reads LL, ML, OF.
         if i + 1 < sequences.len() {
-            let (of_bits, of_nb) = of_trans[i];
+            let (next_of_state, of_bits, of_nb) = of_table
+                .transition(seq.of_code, of_state)
+                .expect("no inverse transition found");
             bits.write_bits(of_bits as u64, of_nb as u32);
-            let (ml_bits, ml_nb) = ml_trans[i];
+            let (next_ml_state, ml_bits, ml_nb) = ml_table
+                .transition(seq.ml_code, ml_state)
+                .expect("no inverse transition found");
             bits.write_bits(ml_bits as u64, ml_nb as u32);
-            let (ll_bits, ll_nb) = ll_trans[i];
+            let (next_ll_state, ll_bits, ll_nb) = ll_table
+                .transition(seq.ll_code, ll_state)
+                .expect("no inverse transition found");
             bits.write_bits(ll_bits as u64, ll_nb as u32);
+            of_state = next_of_state;
+            ml_state = next_ml_state;
+            ll_state = next_ll_state;
         }
         // Extra bits come above transitions (highest within seq group).
         // Write order (lowest→highest): LL, ML, OF → decoder reads OF, ML, LL.
@@ -258,9 +267,9 @@ fn encode_sequences(sequences: &[EncodedSequence]) -> Vec<u8> {
     }
 
     // Initial states: ML (lowest), OF, LL (highest) so decoder reads LL first.
-    bits.write_bits(ml_states[0] as u64, ml_table.accuracy_log as u32);
-    bits.write_bits(of_states[0] as u64, of_table.accuracy_log as u32);
-    bits.write_bits(ll_states[0] as u64, ll_table.accuracy_log as u32);
+    bits.write_bits(ml_state as u64, ml_table.accuracy_log as u32);
+    bits.write_bits(of_state as u64, of_table.accuracy_log as u32);
+    bits.write_bits(ll_state as u64, ll_table.accuracy_log as u32);
 
     out.extend_from_slice(&bits.finish());
     out
@@ -278,31 +287,6 @@ fn write_sequence_count(out: &mut Vec<u8>, count: usize) {
         out.push((adjusted & 0xFF) as u8);
         out.push(((adjusted >> 8) & 0xFF) as u8);
     }
-}
-
-fn build_state_path(
-    table: &PredefinedFseEncoder,
-    sequences: &[EncodedSequence],
-    symbol_of: impl Fn(&EncodedSequence) -> usize,
-) -> (Vec<usize>, Vec<(u16, u8)>) {
-    let n = sequences.len();
-    let mut states = vec![0usize; n];
-    let mut transitions = vec![(0u16, 0u8); n.saturating_sub(1)];
-
-    let last_sym = symbol_of(&sequences[n - 1]);
-    states[n - 1] = table.initial_state(last_sym) as usize;
-
-    for i in (0..n - 1).rev() {
-        let target = states[i + 1] as u16;
-        let sym = symbol_of(&sequences[i]);
-        let (prev_state, bits, nb) = table
-            .transition(sym, target)
-            .expect("no inverse transition found");
-        states[i] = prev_state as usize;
-        transitions[i] = (bits, nb);
-    }
-
-    (states, transitions)
 }
 
 impl PredefinedFseEncoder {

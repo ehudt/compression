@@ -50,6 +50,20 @@ These patterns emerged from the results tracked in `results.tsv`:
   81.1 MB/s, but the resulting streams decompressed 1.0-1.7% slower on
   Silesia despite identical ratios. Stream shape matters; validate decoder
   throughput even when an encoder refactor looks format-equivalent.
+- **Inline reverse FSE transitions can be a real win when the stream shape stays the same.**
+  Removing the per-block LL/OF/ML state-path vectors entirely and deriving the
+  previous FSE states inline from the current suffix state preserved the
+  existing bitstream layout, improved weighted compress from `2234.1` to
+  `2346.5 MB/s` (`+5.03%`), and improved Silesia level-1 compress from `74.5`
+  to `80.4 MB/s` (`+7.92%`) with flat ratio and flat decompression. The
+  important part was deleting the staging buffers without changing symbol order
+  or transition selection.
+- **No-match raw-block short-circuits still need to beat the simpler keep.**
+  Returning `None` from `encode_block()` when LZ77 found no sequences looked
+  like a clean complement to the inline-transition win, but on top of the kept
+  state it moved weighted compress from `2346.5` to `2344.7 MB/s` while adding
+  API complexity. If a follow-up shortcut does not improve on the current keep,
+  discard it even if it still clears the original baseline gate.
 - **Random-data fast path was the single biggest win.** Sampling-based
   incompressible detection took random/1 compress from ~48 MiB/s to ~9.8 GiB/s
   (200x). This is a structural shortcut, not a micro-optimization.
