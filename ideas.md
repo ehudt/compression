@@ -13,6 +13,20 @@ These patterns emerged from the results tracked in `results.tsv`:
   came from eliminating entire units of work: skipping sequence self-validation
   (~1.6x), restructuring LZ77 skip insertion into separate loops (~2x on
   all_zeros), and unaligned loads (~1.15x). These cleared both gates.
+- **Format cleanups alone are too small.** Omitting the implied final Huffman
+  weight from the direct header only moved weighted compress by ~1.9% and
+  regressed weighted decompress by ~2.0%, so header-size-only changes are
+  unlikely to clear the current gate without a larger pipeline win attached.
+- **No-match shortcuts help, but not enough by themselves.** Skipping
+  literal/Huffman work after an LZ77 parse with zero matches improved weighted
+  compress by ~1.6% with a small decompress dip; stacking a sparse whole-block
+  no-match precheck pushed decompress past the -1% gate. This path likely needs
+  a more selective heuristic or a different companion win.
+- **Weighted can false-positive on untouched paths.** A decoder-only change
+  that streamed sequence decode directly into execution showed a +3.0% weighted
+  compress gain, but Silesia level-1 compress only moved +0.6% while Silesia
+  decompression regressed by ~2.3%. Treat weighted gains on metrics the patch
+  does not directly touch as suspect until Silesia confirms them.
 - **Random-data fast path was the single biggest win.** Sampling-based
   incompressible detection took random/1 compress from ~48 MiB/s to ~9.8 GiB/s
   (200x). This is a structural shortcut, not a micro-optimization.
