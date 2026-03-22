@@ -1,15 +1,7 @@
 # CLAUDE.md — Agent guide for zstd_rs
 
-This file gives an AI agent everything it needs to work productively in this
-codebase without reading every source file first.
-
----
-
-## Project at a glance
-
-Pure-Rust implementation of [Zstandard](https://facebook.github.io/zstd/)
-compression (`src/`, library crate `zstd_rs`).  The public API is three
-functions in `src/lib.rs`:
+Pure-Rust [Zstandard](https://facebook.github.io/zstd/) compression library
+(`src/`, crate `zstd_rs`). Public API in `src/lib.rs`:
 
 ```rust
 compress(data: &[u8], level: i32) -> Result<Vec<u8>>   // level 1-22
@@ -23,115 +15,42 @@ compress_bound(data_len: usize)    -> usize              // worst-case output si
 
 ```bash
 cargo build              # compile library + binary
-cargo test               # unit tests + integration tests + doctests (must all pass)
+cargo test               # unit + integration + doctests (must all pass)
 cargo test --test integration  # integration tests only
-cargo test --test acceptance   # interoperability tests against system zstd (see below)
-cargo bench              # Fast signal benchmark (speed + ratio)
-cargo bench --bench weighted        # Weighted composite benchmark (one score per metric)
-cargo bench --bench squash          # Squash-style multi-corpus benchmark
-ZSTD_RS_FULL_BENCHES=1 cargo bench  # exhaustive all-level benchmark sweep
-cargo run --release --example silesia_bench -- --download  # Silesia benchmark vs official zstd + SVG
-cargo run --example basic       # demo
+cargo test --test acceptance   # interop tests against system zstd
+cargo bench              # fast signal benchmark (speed + ratio)
+cargo bench --bench weighted   # weighted composite benchmark
+cargo bench --bench squash     # squash-style multi-corpus benchmark
+cargo run --example basic      # demo
 cargo run --bin zstd_rs -- compress 3 input.txt out.zst
 cargo run --bin zstd_rs -- decompress out.zst result.txt
-cargo test --features profiling  # verifies the profiling-gated build path
-cargo bench --features profiling --no-run  # compiles Criterion + pprof integration
+cargo test --features profiling       # verify profiling build path
+cargo bench --features profiling --no-run  # compile Criterion + pprof
 ```
+
+**Never run more than one benchmark at a time.** Concurrent benchmarks cause
+CPU contention and unreliable numbers.
+
+See `docs/benchmarking.md` for full benchmark/profiling details (Silesia,
+squash, signal, profiling workflow, env vars).
 
 ### Acceptance tests
 
-`tests/acceptance.rs` checks interoperability with the system `zstd` binary in
-two directions:
+`tests/acceptance.rs` checks interop with the system `zstd` binary:
 
-- **Our compress → `zstd -d`**: 10 tests (empty, single byte, all-zeros,
+- **Our compress -> `zstd -d`**: 10 tests (empty, single byte, all-zeros,
   repetitive text, sequential bytes, pseudo-random, multi-block, level sweep
-  1–19, all-256-byte-values).
-- **`zstd` compress → our decompress**: 10 tests over the same corpus at
-  levels 1, 3, 9, 19.
+  1-19, all-256-byte-values).
+- **`zstd` compress -> our decompress**: 10 tests at levels 1, 3, 9, 19.
 
-**Prerequisite:** the `zstd` CLI (v1.4+) must be in `PATH`.
-
-```bash
-# Install on Debian/Ubuntu
-sudo apt-get install zstd
-
-# Install on macOS
-brew install zstd
-```
-
-If the binary is absent the tests skip with an explanatory message rather
-than failing, so the suite remains usable in environments without the tool.
-
-Tests must pass before committing.  The project has zero warnings in the
-default configuration; do not introduce new warnings.
-
-### Silesia benchmark prerequisites
-
-The standalone Silesia benchmark example (`examples/silesia_bench.rs`) compares
-`zstd_rs` against the system `zstd` implementation and generates markdown, JSON,
-and SVG outputs under `docs/benchmarks/`.
-
-Required tools:
-
-- Rust toolchain (`cargo`, `rustc`)
-- `zstd` CLI in `PATH`
-- `curl` and `python3` in `PATH` when using `--download` to fetch the corpus cache
-
-Typical usage:
+Requires `zstd` CLI (v1.4+) in `PATH`. Tests skip gracefully if absent.
 
 ```bash
-cargo run --release --example silesia_bench -- --download --implementation both
+sudo apt-get install zstd   # Debian/Ubuntu
+brew install zstd            # macOS
 ```
 
-Useful flags:
-
-```bash
-cargo run --release --example silesia_bench -- \
-  --corpus-dir ~/silesia \
-  --output-dir docs/benchmarks \
-  --implementation both \
-  --levels 1,3,9,19 \
-  --min-bench-ms 1000
-```
-
-Common one-line variants:
-
-```bash
-# Both implementations on the same machine
-cargo run --release --example silesia_bench -- --download --implementation both
-
-# Official zstd only
-cargo run --release --example silesia_bench -- --download --implementation official
-
-# zstd_rs only
-cargo run --release --example silesia_bench -- --download --implementation ours
-```
-
-### Profiling workflow
-
-Profiling is opt-in and must not change behavior or add runtime overhead when
-disabled.
-
-- Build profiling support with `--features profiling`.
-- Use `cargo run --profile profiling --features profiling -- --profile-cpu out.svg --profile-repeat 200 --profile-min-ms 500 compress 3 input out.zst`
-  or the same flag pair with `decompress`.
-- CLI profiling runs one unprofiled warmup iteration first, then samples only
-  the steady-state in-memory loop until both the repeat count and minimum
-  duration target are satisfied.
-- Integration tests can emit one SVG per test when
-  `ZSTD_RS_PROFILE_TESTS=/path/to/dir` is set.
-- Criterion benchmarks enable `pprof` only when
-  `ZSTD_RS_PROFILE_BENCHES=1` is set.
-- Plain `cargo bench` runs a small signal benchmark over four 64 KiB cases:
-  `all_zeros` level 3, `repetitive` level 3, `binary_structured` level 3,
-  and `random` level 1, plus two round-trip checks.
-- Set `ZSTD_RS_FULL_BENCHES=1` for the exhaustive `1..=22` sweep.
-- `cargo bench --bench squash` runs the Squash-style benchmark with eight
-  synthetic corpora (text, xml, source_code, executable, database,
-  medical_image, json, random) at levels 1, 3, 9, 19.  Full mode uses
-  256 KiB inputs and all 22 levels plus size-scaling tests.
-- Every profile capture also writes textual companions:
-  `*.folded` for folded stacks and `*.summary.txt` for an agent-friendly summary.
+Tests must pass before committing. Zero warnings policy -- do not introduce new warnings.
 
 ---
 
@@ -156,163 +75,22 @@ src/
     literals.rs          Literal section decoder (raw / RLE / Huffman)
     sequences.rs         Sequence section decoder (FSE) + sequence execution
   tables/
-    sequences.rs         Predefined FSE norms; literal-length / match-length /
-                         offset extra-bits lookup tables
+    sequences.rs         Predefined FSE norms; LL/ML/offset extra-bits tables
 tests/
   integration.rs         23 end-to-end round-trip and error-case tests
 benches/
-  compression.rs         Criterion speed benchmarks + ratio summary, fast/full modes
+  compression.rs         Criterion speed benchmarks + ratio summary
   squash.rs              Squash-style multi-corpus benchmark (8 data categories)
 examples/
   basic.rs               Simple compress/decompress demo
-  silesia_bench.rs       Silesia corpus benchmark vs system zstd + SVG/JSON/MD outputs
+  silesia_bench.rs       Silesia corpus benchmark vs system zstd + SVG/JSON/MD
 ```
-
----
-
-## Zstd frame format (brief)
-
-A zstd-compressed file is one or more **frames**, each structured as:
-
-```
-[Magic 4B][Frame Header][Block...][Optional checksum 4B]
-```
-
-**Frame Header** (written by `frame.rs:compress_with_config`):
-- FHD byte: `FCS_flag=2` (4-byte content size), no dict, checksum bit
-- Window descriptor byte: 56 (= 128 KiB window)
-- 4-byte content size (u32 LE)
-
-**Block header** (3 bytes):
-- bit[0]: last-block flag
-- bits[2:1]: block type — 0=raw, 1=RLE, 2=compressed
-- bits[23:3]: block size in bytes
-
-Block payload for type 2 (compressed):
-```
-[Literals section][Sequences section]
-```
-
----
-
-## Literals section encoding
-
-The size field in the first byte(s) uses **different packing depending on
-`size_format` (bits [3:2] of byte 0)**:
-
-| `size_format` | Header bytes | Size bits in byte 0 | Shift to decode |
-|---|---|---|---|
-| 0 | 1 | bits [7:3] (5 bits) | `byte0 >> 3` |
-| 1 | 2 | bits [7:4] (4 bits) | `byte0 >> 4` |
-| 2 | 1 | same as 0 | `byte0 >> 3` |
-| 3 | 3 | bits [7:4] (4 bits) | `byte0 >> 4` |
-
-**Encoder constants** (`src/encoder/block.rs`):
-- raw sf=0: `byte0 = (n << 3) as u8`
-- raw sf=1: `byte0 = 0x04 | ((n & 0xF) << 4) as u8`
-- raw sf=3: `byte0 = 0x0C | ((n & 0xF) << 4) as u8`
-- RLE sf=0: `byte0 = 0x01 | ((n << 3) as u8)`
-- RLE sf=1: `byte0 = 0x05 | ((n & 0xF) << 4) as u8`
-- RLE sf=3: `byte0 = 0x0D | ((n & 0xF) << 4) as u8`
-- Compressed sf=2 (4-byte header): `byte0 = 0x0A | ((regen & 0xF) << 4) as u8`
-
-If you add a new sf value, update **both** `encoder/block.rs` and
-`decoder/literals.rs:decode_size_raw` / `decode_size_compressed`.
-
----
-
-## Huffman coding invariants
-
-`HuffmanTable::from_weights` (`src/huffman.rs`):
-
-- `max_bits` is **NOT** `max_weight`.  It is computed from the weight sum:
-  `max_bits = next_power_of_two(sum_weight).ilog2()`
-  where `sum_weight = Σ 2^(w_i − 1)` for active symbols.
-  This must equal `2^max_bits` for a complete tree.
-- Canonical codes are generated starting from `next_code[1] = 0`.
-  `bl_count[0]` (absent symbols) **must not** influence code generation.
-  The loop starts at `bits = 2`, not `bits = 1`.
-- When building the decode lookup table (`HuffmanTable::decode`), each symbol
-  fills `1 << (max_bits - len)` consecutive entries.  If any `code >= (1 << len)`
-  the table overflows — this indicates invalid lengths from `build_lengths`.
-
----
-
-## FSE (Finite State Entropy) — what it is and how this repo uses it
-
-### What FSE is
-
-FSE (also called tANS — table-based Asymmetric Numeral Systems) is a
-near-optimal entropy coder.  It is zstd's replacement for Huffman coding in
-the **sequences section** of each compressed block.
-
-A sequence is a triple `(literal_length, match_length, offset)` produced by
-the LZ77 pass.  zstd uses FSE to entropy-code the three symbol streams
-(LL codes, ML codes, OF codes) jointly into a single backward bitstream.
-
-The FSE state machine works as follows:
-
-- A **decode table** maps each state (integer in `[0, table_size)`) to a
-  `(symbol, num_bits, base_line)` triple.  To decode: read `num_bits` bits,
-  new state = `base_line + bits_read`.
-- An **encode table** maps each symbol to `(delta_find_state, num_bits,
-  find_state_min)`.  To encode symbol S from state s: output the lower
-  `num_bits` bits of s, new state = `(s >> num_bits) + delta_find_state`.
-- The encode and decode tables are derived from the same **normalized
-  probability distribution** (stored in each compressed block header, or
-  taken from a predefined default).
-
-The sequence bitstream is written **in reverse** — the encoder processes
-sequences last-to-first and writes bits into a backward-growing buffer,
-which the decoder reads forward (after the sentinel bit).
-
-### What is implemented
-
-- `fse.rs`: `normalize_counts`, `build_decode_table`, `build_encode_table`,
-  `read_distribution_table`, `BitReader`, `BitWriter`.
-- `tables/sequences.rs`: the predefined FSE norms for LL / ML / OF
-  (`LITERALS_LENGTH_DEFAULT_NORM`, `MATCH_LENGTH_DEFAULT_NORM`,
-  `OFFSET_DEFAULT_NORM`) and the extra-bits lookup tables.
-- `decoder/sequences.rs`: full FSE decoder including state initialization,
-  per-sequence state advance, extra-bit decoding, repeat-offset handling,
-  and sequence execution.
-
-### Current encoder behavior
-
-`encoder/block.rs:encode_block` now emits real sequences:
-
-1. `encoder/lz77.rs:parse(data, cfg)` produces literal runs and matches.
-2. `collect_sequences()` keeps literal bytes separate from sequence commands.
-3. Lengths/offsets are mapped to `(ll_code, ml_code, of_code)` plus their
-   extra bits using the tables in `tables/sequences.rs`.
-4. `encode_sequences()` writes:
-   - sequence count
-   - mode byte `0x00` (predefined LL/OF/ML tables)
-   - initial LL / OF / ML states
-   - per-sequence offset extra bits, match-length extra bits, literal-length
-     extra bits, then FSE state transitions for every sequence except the last
-5. `BitWriter::finish()` reverses the buffered bytes to match the decoder's
-   backwards bitstream convention.
-
-The encoder derives a valid state path by inverting the predefined decode
-tables (`build_state_path()` + `inverse_transition()`) instead of maintaining a
-separate FSE encoder-table implementation.
-
-Two important current constraints:
-
-- Offsets are always emitted through the non-repeat path: `raw_offset = offset + 3`.
-  This is simpler than modeling zstd's repeat-offset encoder state machine.
-- `validate_sequences()` round-trips the encoded sequences through the local
-  decoder and falls back to a literals-only block if reconstruction does not
-  match the original input.
 
 ---
 
 ## Compression ratio: current state
 
-Compression now combines Huffman-coded literals with LZ77/FSE sequence coding.
-That substantially improves text and repetitive-data compression versus the
-previous literals-only path.
+Compression combines Huffman-coded literals with LZ77/FSE sequence coding.
 
 | Data type | Typical ratio |
 |---|---|
@@ -326,19 +104,25 @@ previous literals-only path.
 
 - All public functions return `Result<_, ZstdError>` from `error.rs`.
 - Corrupt input returns `ZstdError::CorruptData` or a specific variant.
-- Do **not** panic on malformed input — return an error.
-- Decoder must handle all cases: wrong magic, truncated stream, bad
-  checksum, invalid block type.
+- Never panic on malformed input -- return an error.
+- Decoder must handle: wrong magic, truncated stream, bad checksum, invalid block type.
 
 ---
 
 ## Testing policy
 
-- Every new module gets at least one `#[cfg(test)]` block with basic
-  unit tests.
-- Encoder/decoder pairs must be tested with a round-trip that asserts
-  byte-for-byte equality.
-- The integration test file (`tests/integration.rs`) covers sizes 0,
-  1, 255, 256, 1 024, 10 000, 100 000 bytes; all fast levels; and all
-  error paths.  New features should add cases there.
+- Every new module gets at least one `#[cfg(test)]` block.
+- Encoder/decoder pairs need round-trip tests asserting byte-for-byte equality.
+- `tests/integration.rs` covers sizes 0, 1, 255, 256, 1024, 10000, 100000 bytes;
+  all fast levels; and all error paths. New features should add cases there.
 - Run `cargo test` before every commit.
+
+---
+
+## Format & algorithm references
+
+These docs have detailed encoding tables, invariants, and implementation notes:
+
+- `docs/zstd-format.md` -- frame structure, block headers, literals section encoding, Huffman invariants
+- `docs/fse-details.md` -- FSE/tANS theory, decoder/encoder implementation, current constraints
+- `docs/benchmarking.md` -- all benchmark types, Silesia setup, profiling workflow

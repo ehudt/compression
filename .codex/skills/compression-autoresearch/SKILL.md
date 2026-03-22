@@ -36,13 +36,18 @@ Do not start by editing the benchmark harness or tests unless the task is explic
 1. Propose a fresh branch name of the form `autoresearch/<tag>` and create it from the current mainline.
 2. Confirm the worktree is otherwise clean enough to experiment safely.
 3. Use the tracked `results.tsv` file as the default experiment log.
-4. Create a unique temp log directory outside the repo, for example with `LOG_DIR=$(mktemp -d /tmp/compression-autoresearch-XXXXXX)`, and write all benchmark/test logs there.
+4. Create a unique temp log directory outside the repo:
+   ```bash
+   LOG_DIR=$(mktemp -d /tmp/compression-autoresearch-XXXXXX)
+   ```
+   Write all benchmark/test logs there.
 5. Download the Silesia corpus (needed for integration tests to compile):
    ```bash
    cargo run --release --example silesia_bench -- --download --implementation ours --levels 1 2>/dev/null
    ```
    This populates `~/silesia/` which `tests/integration.rs` depends on at compile time via `include_bytes!`.
-6. Establish the baseline before making any code changes.
+6. Establish the baseline before making any code changes (see Baseline Commands).
+7. Read `ideas.md` for promising directions and warnings from previous sessions.
 
 Suggested TSV header:
 
@@ -57,32 +62,15 @@ Free-form notes are acceptable because Criterion output is textual and case-base
 Run the baseline exactly as the repo is today:
 
 ```bash
-LOG_DIR=$(mktemp -d /tmp/compression-autoresearch-XXXXXX)
 cargo bench --bench weighted > "$LOG_DIR/bench.log" 2>&1
 cargo test --test acceptance -- --nocapture > "$LOG_DIR/acceptance.log" 2>&1
 ```
 
-For thorough validation of a promising change, use the full Silesia run with our
-implementation only:
-
-```bash
-cargo run --release --example silesia_bench -- \
-  --download \
-  --implementation ours \
-  > "$LOG_DIR/silesia.log" 2>&1
-```
-
-Use the weighted benchmark as the default signal for iterating during research.
-It produces three composite scores across 8 data categories (text, json, xml,
-source code, database, executable, medical image, random), weighted by
-real-world frequency:
+The weighted benchmark is the default signal for iteration. It produces three composite scores across 8 data categories (text, json, xml, source code, database, executable, medical image, random), weighted by real-world frequency:
 
 - **weighted_ratio** — weighted average compression ratio (lower is better)
 - **weighted_compress_mb_s** — weighted average compression throughput
 - **weighted_decompress_mb_s** — weighted average decompression throughput
-
-Only when you are ready to commit/keep a change, run the Silesia benchmark to
-get the official numbers for the record.
 
 Useful extracts:
 
@@ -96,22 +84,20 @@ tail -n 40 "$LOG_DIR/acceptance.log"
 Think BIG. Do not keep micro-optimizations. The goal is meaningful algorithmic
 wins, not shuffling code for a 0.5% blip.
 
+All comparisons are against the **original baseline** established in setup, never against intermediate stacked states.
+
 ### Gate 1: Weighted benchmark (fast iteration signal)
 
 A change is **promising enough to validate** only if ALL of these are true:
 
 - `cargo bench --bench weighted` completes successfully
-- `cargo test --test acceptance -- --nocapture` passes, or skips only because `zstd` is unavailable
-- **At least one** composite score (weighted_ratio, weighted_compress_mb_s,
-  weighted_decompress_mb_s) improves by **≥ 3%** compared to the current baseline
+- `cargo test --test acceptance -- --nocapture` passes (or skips only because `zstd` is unavailable)
+- **At least one** composite score improves by **>= 3%**
 - **No** composite score regresses by **> 1%**
 
-If the weighted benchmark shows < 3% improvement on every metric, **discard
-the change immediately**. Do not run Silesia. Do not keep it "just in case."
-Go back to the drawing board and try a bigger idea.
+If improvement is < 3% on every metric, **discard immediately** — do not run Silesia. Go back to the drawing board and try a bigger idea. Exception: if improvement is 1-3%, enter the **stacking phase** (see below).
 
-If a change is ambiguous or borderline, run the full weighted sweep for a
-clearer signal before deciding:
+If a change is ambiguous or borderline, run the full weighted sweep for a clearer signal:
 
 ```bash
 ZSTD_RS_FULL_BENCHES=1 cargo bench --bench weighted > "$LOG_DIR/bench-full.log" 2>&1
@@ -119,8 +105,7 @@ ZSTD_RS_FULL_BENCHES=1 cargo bench --bench weighted > "$LOG_DIR/bench-full.log" 
 
 ### Gate 2: Silesia benchmark (real-data confirmation)
 
-Only run this gate after a change clears Gate 1. Run the full Silesia
-benchmark with our implementation:
+Only run after a change clears Gate 1:
 
 ```bash
 cargo run --release --example silesia_bench -- \
@@ -132,12 +117,10 @@ cargo run --release --example silesia_bench -- \
 Keep the change only if:
 
 - The Silesia benchmark completes successfully
-- The **same metric** that triggered Gate 1 shows **≥ 2% improvement** on the
-  real Silesia corpus compared to the baseline Silesia run
+- The **same metric** that triggered Gate 1 shows **>= 2% improvement** on the real Silesia corpus
 - No other metric regresses by > 1% on Silesia
 
-If Silesia does not confirm the improvement at ≥ 2%, **discard the change**.
-The weighted benchmark was a false signal — move on.
+If Silesia does not confirm >= 2%, **discard** — the weighted benchmark was a false signal.
 
 ### Tradeoff rules
 
@@ -148,7 +131,7 @@ The weighted benchmark was a false signal — move on.
 
 ## Profiling Loop
 
-Use profiling when the fast benchmark shows a regression, a suspicious plateau, or a likely hotspot.
+Use profiling when the fast benchmark shows a regression, a suspicious plateau, or a likely hotspot. Profile first, then change code. Do not cargo-cult micro-optimizations.
 
 ### Benchmark profiling
 
@@ -160,7 +143,7 @@ This writes per-benchmark flamegraph artifacts under Criterion output directorie
 
 ### CLI profiling
 
-Use the CLI path when you want a focused compress or decompress hotspot on a real file:
+Use the CLI path for a focused compress or decompress hotspot on a real file:
 
 ```bash
 cargo run --profile profiling --features profiling -- \
@@ -179,69 +162,39 @@ ZSTD_RS_PROFILE_TESTS=profiles/tests \
   cargo test --profile profiling --features profiling --test integration -- --nocapture
 ```
 
-Profile first, then change code. Do not cargo-cult micro-optimizations.
-
 ## Experiment Loop
 
 Loop autonomously once setup is complete:
 
 1. Inspect the current commit and the last accepted result.
-2. Choose one concrete idea — think big, aim for algorithmic wins.
+2. Choose one concrete idea — think big, aim for algorithmic wins. Check `ideas.md` for promising directions.
 3. Edit only the code needed for that idea.
-4. Run the weighted benchmark and save the log.
-5. **Gate 1 check**: compare composite scores against the **original baseline**
-   (the baseline established in setup, not an intermediate stacked state).
-   - If any score regresses > 1% → **discard immediately**.
-   - If at least one score improves **≥ 3%** with no regression > 1% → proceed
-     to Gate 2.
-   - If improvement is **1–3%** (promising but below the gate) → enter the
-     **stacking phase** (see below).
-   - If improvement is **< 1%** → **discard immediately**.
-6. Run acceptance tests (`cargo test --test acceptance -- --nocapture`).
-7. **Gate 2**: run the full Silesia benchmark with `--implementation ours`.
-   - If the improved metric does not confirm ≥ 2% on Silesia → **discard**.
-   - If confirmed → keep.
-8. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
-9. Log the outcome in `results.tsv`, including the percentage changes.
-10. Keep the commit only if it cleared both gates; otherwise revert to the
-    **original baseline** (not an intermediate stacked state).
+4. Run the weighted benchmark and acceptance tests; save the logs.
+5. **Gate 1 check** (against the original baseline):
+   - Improvement >= 3% on at least one metric, no regression > 1% -> proceed to Gate 2.
+   - Improvement 1-3% -> enter the **stacking phase**.
+   - Improvement < 1% or any regression > 1% -> **discard immediately**.
+6. **Gate 2**: run the Silesia benchmark. If the improved metric does not confirm >= 2%, **discard**.
+7. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
+8. Log the outcome in `results.tsv`, including percentage changes.
+9. Keep the commit only if it cleared both gates; otherwise revert to the original baseline.
+10. Update `ideas.md` if you learned something useful for future agents (new directions, dead ends, refinements). Keep entries concise and actionable; do not duplicate `results.tsv` data.
 
 ### Stacking phase
 
-Small wins (1–3%) are not worthless — they may combine into a significant
-improvement. When a change shows 1–3% improvement on the weighted benchmark:
+Small wins (1-3%) may combine into a significant improvement:
 
-1. **Do not discard it yet.** Keep the code changes in your working tree.
-2. Try to stack a complementary idea on top (e.g., if you improved match
-   finding, now try reducing copy overhead in the same hot path).
-3. After each stacking attempt, re-run the weighted benchmark and compare
-   against the **original baseline** — not the intermediate state.
-4. If the combined changes now clear ≥ 3% on at least one metric → proceed
-   to Gate 2 as normal.
-5. If after **3 stacking attempts** the combined total still does not clear
-   3%, **discard the entire stack** and revert to the original baseline.
-   Log it as `discard (stacked, X% total, below gate)`.
+1. Keep the code changes in your working tree (do not discard yet).
+2. Stack a complementary idea on top (e.g., if you improved match finding, now try reducing copy overhead in the same hot path).
+3. After each stacking attempt, re-run the weighted benchmark against the **original baseline**.
+4. If combined changes clear >= 3% on at least one metric -> proceed to Gate 2.
+5. If after **3 stacking attempts** the total still does not clear 3%, **discard the entire stack** and revert to the original baseline. Log as `discard (stacked, X% total, below gate)`.
 
 Stacking rules:
 - Each stacked idea should be complementary, not a retry of the same approach.
-- Always measure against the original baseline, never against intermediate states.
 - Do not stack more than 3 ideas before either clearing the gate or discarding.
 
 The very first run is always the untouched baseline.
-
-## Ideas file
-
-Read `ideas.md` at the start of every research run. It contains experiment
-directions, learnings, and context from previous research sessions.
-
-- **Before choosing an idea**, check `ideas.md` for promising directions or
-  warnings about approaches that were already tried.
-- **After each experiment** (keep or discard), update `ideas.md` if you learned
-  something that would help a future agent — e.g., a new research direction
-  that emerged, a dead end worth documenting, or a refinement of an existing
-  idea. Keep entries concise and actionable.
-- Do not duplicate `results.tsv` data into `ideas.md`. The ideas file is for
-  strategic context, not raw numbers.
 
 ## Good Experiment Ideas
 
@@ -317,4 +270,4 @@ A "hard blocker" means something like: the build is broken and you cannot fix
 it, or the test suite has an unrelated failure you cannot work around. It does
 **not** mean "I tried a few things and they didn't clear the bar."
 
-Aim for at least 8–10 experiment iterations per research run.
+Aim for at least 8-10 experiment iterations per research run.
