@@ -21,6 +21,14 @@ use crate::tables::sequences::{
 };
 use std::sync::OnceLock;
 
+#[derive(Debug)]
+struct PredefinedFseEncoder {
+    accuracy_log: u8,
+    initial_state_by_symbol: Vec<u16>,
+    transitions: Vec<Option<(u16, u16, u8)>>,
+    table_size: usize,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct EncodedSequence {
     ll_code: usize,
@@ -205,23 +213,13 @@ fn encode_sequences(sequences: &[EncodedSequence]) -> Vec<u8> {
         return vec![0x00];
     }
 
-    let ll_table = build_decode_table(
-        &LITERALS_LENGTH_DEFAULT_NORM,
-        LITERALS_LENGTH_DEFAULT_ACCURACY,
-    )
-    .expect("valid predefined LL table");
-    let of_table = build_decode_table(&OFFSET_DEFAULT_NORM, OFFSET_DEFAULT_ACCURACY)
-        .expect("valid predefined OF table");
-    let ml_table = build_decode_table(&MATCH_LENGTH_DEFAULT_NORM, MATCH_LENGTH_DEFAULT_ACCURACY)
-        .expect("valid predefined ML table");
+    let ll_table = literal_length_encoder();
+    let of_table = offset_encoder();
+    let ml_table = match_length_encoder();
 
-    let ll_symbols: Vec<usize> = sequences.iter().map(|s| s.ll_code).collect();
-    let of_symbols: Vec<usize> = sequences.iter().map(|s| s.of_code).collect();
-    let ml_symbols: Vec<usize> = sequences.iter().map(|s| s.ml_code).collect();
-
-    let (ll_states, ll_trans) = build_state_path(&ll_table, &ll_symbols);
-    let (of_states, of_trans) = build_state_path(&of_table, &of_symbols);
-    let (ml_states, ml_trans) = build_state_path(&ml_table, &ml_symbols);
+    let (ll_states, ll_trans) = build_state_path(ll_table, sequences, |sequence| sequence.ll_code);
+    let (of_states, of_trans) = build_state_path(of_table, sequences, |sequence| sequence.of_code);
+    let (ml_states, ml_trans) = build_state_path(ml_table, sequences, |sequence| sequence.ml_code);
 
     let mut out = Vec::new();
     write_sequence_count(&mut out, sequences.len());
@@ -282,23 +280,24 @@ fn write_sequence_count(out: &mut Vec<u8>, count: usize) {
     }
 }
 
-fn build_state_path(table: &FseDecodeTable, symbols: &[usize]) -> (Vec<usize>, Vec<(u16, u8)>) {
-    let n = symbols.len();
+fn build_state_path(
+    table: &PredefinedFseEncoder,
+    sequences: &[EncodedSequence],
+    symbol_of: impl Fn(&EncodedSequence) -> usize,
+) -> (Vec<usize>, Vec<(u16, u8)>) {
+    let n = sequences.len();
     let mut states = vec![0usize; n];
     let mut transitions = vec![(0u16, 0u8); n.saturating_sub(1)];
 
-    let last_sym = symbols[n - 1] as u8;
-    states[n - 1] = table
-        .table
-        .iter()
-        .position(|e| e.symbol == last_sym)
-        .expect("symbol must exist in predefined table");
+    let last_sym = symbol_of(&sequences[n - 1]);
+    states[n - 1] = table.initial_state(last_sym) as usize;
 
     for i in (0..n - 1).rev() {
         let target = states[i + 1] as u16;
-        let sym = symbols[i] as u8;
-        let (prev_state, bits, nb) =
-            inverse_transition(table, sym, target).expect("no inverse transition found");
+        let sym = symbol_of(&sequences[i]);
+        let (prev_state, bits, nb) = table
+            .transition(sym, target)
+            .expect("no inverse transition found");
         states[i] = prev_state as usize;
         transitions[i] = (bits, nb);
     }
@@ -306,21 +305,74 @@ fn build_state_path(table: &FseDecodeTable, symbols: &[usize]) -> (Vec<usize>, V
     (states, transitions)
 }
 
-fn inverse_transition(
-    table: &FseDecodeTable,
-    symbol: u8,
-    next_state: u16,
-) -> Option<(u16, u16, u8)> {
-    for (idx, entry) in table.table.iter().enumerate() {
-        if entry.symbol != symbol {
-            continue;
+impl PredefinedFseEncoder {
+    fn from_decode_table(table: &FseDecodeTable, symbol_count: usize) -> Self {
+        let table_size = table.table.len();
+        let mut initial_state_by_symbol = vec![u16::MAX; symbol_count];
+        let mut transitions = vec![None; symbol_count * table_size];
+
+        for (idx, entry) in table.table.iter().enumerate() {
+            let symbol = entry.symbol as usize;
+            if initial_state_by_symbol[symbol] == u16::MAX {
+                initial_state_by_symbol[symbol] = idx as u16;
+            }
+
+            let base = entry.base_line as usize;
+            let span = 1usize << entry.num_bits;
+            for bits in 0..span {
+                let next_state = base + bits;
+                transitions[symbol * table_size + next_state] =
+                    Some((idx as u16, bits as u16, entry.num_bits));
+            }
         }
-        let span = 1u16 << entry.num_bits;
-        if next_state >= entry.base_line && next_state < entry.base_line + span {
-            return Some((idx as u16, next_state - entry.base_line, entry.num_bits));
+
+        Self {
+            accuracy_log: table.accuracy_log,
+            initial_state_by_symbol,
+            transitions,
+            table_size,
         }
     }
-    None
+
+    #[inline]
+    fn initial_state(&self, symbol: usize) -> u16 {
+        self.initial_state_by_symbol[symbol]
+    }
+
+    #[inline]
+    fn transition(&self, symbol: usize, next_state: u16) -> Option<(u16, u16, u8)> {
+        self.transitions[symbol * self.table_size + next_state as usize]
+    }
+}
+
+fn literal_length_encoder() -> &'static PredefinedFseEncoder {
+    static TABLE: OnceLock<PredefinedFseEncoder> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let decode = build_decode_table(
+            &LITERALS_LENGTH_DEFAULT_NORM,
+            LITERALS_LENGTH_DEFAULT_ACCURACY,
+        )
+        .expect("valid predefined LL table");
+        PredefinedFseEncoder::from_decode_table(&decode, LITERALS_LENGTH_EXTRA.len())
+    })
+}
+
+fn offset_encoder() -> &'static PredefinedFseEncoder {
+    static TABLE: OnceLock<PredefinedFseEncoder> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let decode = build_decode_table(&OFFSET_DEFAULT_NORM, OFFSET_DEFAULT_ACCURACY)
+            .expect("valid predefined OF table");
+        PredefinedFseEncoder::from_decode_table(&decode, OFFSET_DEFAULT_NORM.len())
+    })
+}
+
+fn match_length_encoder() -> &'static PredefinedFseEncoder {
+    static TABLE: OnceLock<PredefinedFseEncoder> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let decode = build_decode_table(&MATCH_LENGTH_DEFAULT_NORM, MATCH_LENGTH_DEFAULT_ACCURACY)
+            .expect("valid predefined ML table");
+        PredefinedFseEncoder::from_decode_table(&decode, MATCH_LENGTH_EXTRA.len())
+    })
 }
 
 /// Encode the literals section.

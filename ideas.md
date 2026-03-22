@@ -33,6 +33,12 @@ These patterns emerged from the results tracked in `results.tsv`:
   compress gain, but Silesia level-1 compress only moved +0.6% while Silesia
   decompression regressed by ~2.3%. Treat weighted gains on metrics the patch
   does not directly touch as suspect until Silesia confirms them.
+- **Encoder-side FSE state choices affect decode speed.** Reworking sequence
+  encoding to derive FSE transitions directly during the reverse write loop
+  pushed weighted compress to roughly +4.6% and Silesia level-3 compress to
+  81.1 MB/s, but the resulting streams decompressed 1.0-1.7% slower on
+  Silesia despite identical ratios. Stream shape matters; validate decoder
+  throughput even when an encoder refactor looks format-equivalent.
 - **Random-data fast path was the single biggest win.** Sampling-based
   incompressible detection took random/1 compress from ~48 MiB/s to ~9.8 GiB/s
   (200x). This is a structural shortcut, not a micro-optimization.
@@ -57,6 +63,14 @@ These patterns emerged from the results tracked in `results.tsv`:
 - Push further on the direct-sink path: repeated enum materialization and
   reverse table scans were worth removing, so adjacent wins likely live in
   other per-sequence bookkeeping that still runs on every match.
+- Caching the predefined FSE encoder transition tables also cleared both
+  gates: weighted compress moved from `2230.1` to `2317.3 MB/s` (`+3.01%`)
+  and Silesia level-3 compress from `63.1` to `75.6 MB/s` (`+19.81%`) with
+  flat ratio and within-gate decompression changes.
+- Keep an eye on benchmark variance near the 3% weighted gate. This branch
+  showed reruns between roughly `2294` and `2317 MB/s` after the accepted FSE
+  cache change, so a single borderline weighted pass is not enough evidence by
+  itself; lean on repeated runs and Silesia confirmation.
 - Treat weighted-only wins as suspicious until Silesia confirms them; longer-file behavior matters more than short synthetic cases.
 - Prefer changes that reduce allocations or whole passes over tweaks like wider compare chunks or lookup micro-optimizations.
 
