@@ -13,10 +13,21 @@ These patterns emerged from the results tracked in `results.tsv`:
   came from eliminating entire units of work: skipping sequence self-validation
   (~1.6x), restructuring LZ77 skip insertion into separate loops (~2x on
   all_zeros), and unaligned loads (~1.15x). These cleared both gates.
+- **Event-free sequence collection is another credible path.** Replacing the
+  encoder's `Event` enum handoff with a direct LZ77 sink, then precomputing
+  literal/match/offset code lookups, improved weighted compress from `2189.7`
+  to `2287.4 MB/s` (`+4.46%`) with flat ratio and confirmed on Silesia level 3
+  from `51.1` to `62.9 MB/s` (`+23.09%`). The common thread is removing
+  repeated per-sequence bookkeeping instead of tuning individual comparisons.
 - **Format cleanups alone are too small.** Omitting the implied final Huffman
   weight from the direct header only moved weighted compress by ~1.9% and
   regressed weighted decompress by ~2.0%, so header-size-only changes are
   unlikely to clear the current gate without a larger pipeline win attached.
+- **Low-level LZ77 search cuts are plateauing.** An early-exit + sparser
+  reinsertion + lower-search-depth stack on top of `7fb6b45` only reached
+  `+1.91%` weighted compress at best with flat ratio, then fell back to
+  `+1.10%` on the third attempt. Small search-pruning stacks in the current
+  matcher are not enough to clear the 3% weighted gate.
 - **No-match shortcuts help, but not enough by themselves.** Skipping
   literal/Huffman work after an LZ77 parse with zero matches improved weighted
   compress by ~1.6% with a small decompress dip; stacking a sparse whole-block
@@ -33,9 +44,20 @@ These patterns emerged from the results tracked in `results.tsv`:
   `50.9` to `50.4 MB/s` at level 1 and stayed below the gate at higher levels.
   Short synthetic corpora overstated the value of extra range bookkeeping in
   the block encoder.
+- **Encoder-side FSE state choices affect decode speed.** Reworking sequence
+  encoding to derive FSE transitions directly during the reverse write loop
+  pushed weighted compress to roughly +4.6% and Silesia level-3 compress to
+  81.1 MB/s, but the resulting streams decompressed 1.0-1.7% slower on
+  Silesia despite identical ratios. Stream shape matters; validate decoder
+  throughput even when an encoder refactor looks format-equivalent.
 - **Random-data fast path was the single biggest win.** Sampling-based
   incompressible detection took random/1 compress from ~48 MiB/s to ~9.8 GiB/s
   (200x). This is a structural shortcut, not a micro-optimization.
+- **Naive scratch reuse can backfire.** A profiled attempt to reuse
+  `MatchFinder` storage with generation-stamped hash/chain tables regressed
+  weighted compress from `2301.3` to `2147.1 MB/s` (`-6.70%`) despite flat
+  ratio. The extra memory footprint and branchy epoch checks cost more than the
+  avoided zero-fill/allocation in the current design.
 - **Decoder wins come from reducing copies.** Reading sequence back-references
   directly from output (instead of cloning history per block) improved Silesia
   decompress by ~3-5% across all levels and improved repetitive roundtrip by
@@ -59,6 +81,17 @@ These patterns emerged from the results tracked in `results.tsv`:
   transition tables: weighted compress moved from `2191.5` to `2312.4 MB/s`
   (`+5.51%`), and Silesia level-1/3 compress moved from `50.9/51.1` to
   `75.7/75.5 MB/s` with flat ratio.
+- Push further on the direct-sink path: repeated enum materialization and
+  reverse table scans were worth removing, so adjacent wins likely live in
+  other per-sequence bookkeeping that still runs on every match.
+- Caching the predefined FSE encoder transition tables also cleared both
+  gates: weighted compress moved from `2230.1` to `2317.3 MB/s` (`+3.01%`)
+  and Silesia level-3 compress from `63.1` to `75.6 MB/s` (`+19.81%`) with
+  flat ratio and within-gate decompression changes.
+- Keep an eye on benchmark variance near the 3% weighted gate. This branch
+  showed reruns between roughly `2294` and `2317 MB/s` after the accepted FSE
+  cache change, so a single borderline weighted pass is not enough evidence by
+  itself; lean on repeated runs and Silesia confirmation.
 - Treat weighted-only wins as suspicious until Silesia confirms them; longer-file behavior matters more than short synthetic cases.
 - Prefer changes that reduce allocations or whole passes over tweaks like wider compare chunks or lookup micro-optimizations.
 

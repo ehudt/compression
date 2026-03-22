@@ -69,6 +69,7 @@ impl ParseSink for SequenceCollector<'_> {
             self.invalid = true;
             return;
         };
+        // Encode all offsets using the non-repeat path: raw_offset = offset + 3.
         let Some((of_code, of_extra)) = offset_code(offset) else {
             self.invalid = true;
             return;

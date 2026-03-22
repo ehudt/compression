@@ -63,12 +63,7 @@ fn run() -> Result<(), String> {
                 total_runs,
                 &format!("running {official_version} level {level}"),
             )?;
-            let result = benchmark_official(
-                level,
-                &official_version,
-                &corpus,
-                &config,
-            );
+            let result = benchmark_official(level, &official_version, &corpus, &config);
             completed_runs += 1;
             print_result_summary(completed_runs, total_runs, &result);
             results.push(result);
@@ -994,11 +989,7 @@ fn shorten_zstd_version(version_line: &str) -> String {
     if let Some(version) = trimmed
         .split(|ch: char| ch.is_whitespace() || ch == ',' || ch == '*')
         .find(|token| {
-            token.starts_with('v')
-                && token
-                    .chars()
-                    .nth(1)
-                    .is_some_and(|ch| ch.is_ascii_digit())
+            token.starts_with('v') && token.chars().nth(1).is_some_and(|ch| ch.is_ascii_digit())
         })
     {
         return format!("zstd {}", &version[1..]);
