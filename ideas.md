@@ -23,6 +23,11 @@ These patterns emerged from the results tracked in `results.tsv`:
   weight from the direct header only moved weighted compress by ~1.9% and
   regressed weighted decompress by ~2.0%, so header-size-only changes are
   unlikely to clear the current gate without a larger pipeline win attached.
+- **Low-level LZ77 search cuts are plateauing.** An early-exit + sparser
+  reinsertion + lower-search-depth stack on top of `7fb6b45` only reached
+  `+1.91%` weighted compress at best with flat ratio, then fell back to
+  `+1.10%` on the third attempt. Small search-pruning stacks in the current
+  matcher are not enough to clear the 3% weighted gate.
 - **No-match shortcuts help, but not enough by themselves.** Skipping
   literal/Huffman work after an LZ77 parse with zero matches improved weighted
   compress by ~1.6% with a small decompress dip; stacking a sparse whole-block
@@ -42,6 +47,11 @@ These patterns emerged from the results tracked in `results.tsv`:
 - **Random-data fast path was the single biggest win.** Sampling-based
   incompressible detection took random/1 compress from ~48 MiB/s to ~9.8 GiB/s
   (200x). This is a structural shortcut, not a micro-optimization.
+- **Naive scratch reuse can backfire.** A profiled attempt to reuse
+  `MatchFinder` storage with generation-stamped hash/chain tables regressed
+  weighted compress from `2301.3` to `2147.1 MB/s` (`-6.70%`) despite flat
+  ratio. The extra memory footprint and branchy epoch checks cost more than the
+  avoided zero-fill/allocation in the current design.
 - **Decoder wins come from reducing copies.** Reading sequence back-references
   directly from output (instead of cloning history per block) improved Silesia
   decompress by ~3-5% across all levels and improved repetitive roundtrip by
