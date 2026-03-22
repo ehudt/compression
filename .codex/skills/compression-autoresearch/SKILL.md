@@ -33,7 +33,7 @@ Do not start by editing the benchmark harness or tests unless the task is explic
 
 ## Setup
 
-1. Propose a fresh branch name of the form `autoresearch/<tag>` and create it from the current mainline.
+1. **Stay on the current branch.** Do not create, switch to, or push any branch. All commits go directly onto whatever branch is checked out when the run starts. Do not merge or push anywhere. If run 10 times in a row, the result should be 10 commits stacked on the starting HEAD.
 2. Confirm the worktree is otherwise clean enough to experiment safely.
 3. Use the tracked `results.tsv` file as the default experiment log.
 4. Create a unique temp log directory outside the repo:
