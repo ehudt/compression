@@ -13,6 +13,12 @@ These patterns emerged from the results tracked in `results.tsv`:
   came from eliminating entire units of work: skipping sequence self-validation
   (~1.6x), restructuring LZ77 skip insertion into separate loops (~2x on
   all_zeros), and unaligned loads (~1.15x). These cleared both gates.
+- **Event-free sequence collection is another credible path.** Replacing the
+  encoder's `Event` enum handoff with a direct LZ77 sink, then precomputing
+  literal/match/offset code lookups, improved weighted compress from `2189.7`
+  to `2287.4 MB/s` (`+4.46%`) with flat ratio and confirmed on Silesia level 3
+  from `51.1` to `62.9 MB/s` (`+23.09%`). The common thread is removing
+  repeated per-sequence bookkeeping instead of tuning individual comparisons.
 - **Format cleanups alone are too small.** Omitting the implied final Huffman
   weight from the direct header only moved weighted compress by ~1.9% and
   regressed weighted decompress by ~2.0%, so header-size-only changes are
@@ -48,6 +54,9 @@ These patterns emerged from the results tracked in `results.tsv`:
 **Implementation notes:**
 - Focus on code that runs across long compressible files, not just tiny hot loops: `src/encoder/block.rs`, `src/encoder/lz77.rs`, and block-level decisions in `src/frame.rs`.
 - Streaming parse events worked; adjacent ideas worth trying next are scratch-buffer reuse across blocks and avoiding needless fallback copies when a block is abandoned.
+- Push further on the direct-sink path: repeated enum materialization and
+  reverse table scans were worth removing, so adjacent wins likely live in
+  other per-sequence bookkeeping that still runs on every match.
 - Treat weighted-only wins as suspicious until Silesia confirms them; longer-file behavior matters more than short synthetic cases.
 - Prefer changes that reduce allocations or whole passes over tweaks like wider compare chunks or lookup micro-optimizations.
 
