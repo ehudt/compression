@@ -53,6 +53,18 @@ These patterns emerged from the results tracked in `results.tsv`:
 - **Random-data fast path was the single biggest win.** Sampling-based
   incompressible detection took random/1 compress from ~48 MiB/s to ~9.8 GiB/s
   (200x). This is a structural shortcut, not a micro-optimization.
+- **The current low-level incompressible gate is already near the throughput/ratio frontier.**
+  Two attempts to weaken it by demanding more sampled evidence before bailing
+  out both improved weighted ratio from `0.2293` to `0.2253`, but they cut
+  weighted compress roughly in half and weighted decompress by about a third.
+  For the current synthetic mix, the existing `<=1 exact repeat in first 4 KiB`
+  rule is crude but effective; do not relax it without a much stronger
+  block-level classifier.
+- **Cheap literal-section shortcuts are not the bottleneck.** Counting literal
+  frequencies during parse collection and skipping the impossible `>128 symbol`
+  Huffman path both regressed weighted compress by ~1.3% while barely moving
+  ratio. The extra literal scan is not where the current encoder is paying its
+  largest costs.
 - **Naive scratch reuse can backfire.** A profiled attempt to reuse
   `MatchFinder` storage with generation-stamped hash/chain tables regressed
   weighted compress from `2301.3` to `2147.1 MB/s` (`-6.70%`) despite flat
