@@ -64,12 +64,12 @@ pub fn compress_with_config(
         let is_last = block_end == input.len();
 
         let repeated_byte = repeated_byte(block_data);
-        let compressed = if repeated_byte.is_none() && should_attempt_compressed_block(block_data, cfg)
-        {
-            Some(encode_block(block_data, cfg)?)
-        } else {
-            None
-        };
+        let compressed =
+            if repeated_byte.is_none() && should_attempt_compressed_block(block_data, cfg) {
+                Some(encode_block(block_data, cfg)?)
+            } else {
+                None
+            };
 
         let use_rle = repeated_byte.is_some();
         let use_compressed = !use_rle
