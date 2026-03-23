@@ -16,40 +16,73 @@
 <line x1="90" y1="650.0" x2="1060" y2="650.0" stroke="#e5e5e5" stroke-width="1"/>
 <line x1="90" y1="650" x2="1060" y2="650" stroke="#222" stroke-width="2"/>
 <line x1="90" y1="70" x2="90" y2="650" stroke="#222" stroke-width="2"/>
-<text x="90.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">88</text>
-<text x="78" y="655.0" text-anchor="end" font-family="sans-serif" font-size="14">3.908</text>
-<text x="284.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">873</text>
-<text x="78" y="539.0" text-anchor="end" font-family="sans-serif" font-size="14">3.928</text>
-<text x="478.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">1658</text>
-<text x="78" y="423.0" text-anchor="end" font-family="sans-serif" font-size="14">3.948</text>
-<text x="672.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">2444</text>
-<text x="78" y="307.0" text-anchor="end" font-family="sans-serif" font-size="14">3.968</text>
-<text x="866.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">3229</text>
-<text x="78" y="191.0" text-anchor="end" font-family="sans-serif" font-size="14">3.988</text>
-<text x="1060.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">4014</text>
-<text x="78" y="75.0" text-anchor="end" font-family="sans-serif" font-size="14">4.008</text>
+<text x="90.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">-7</text>
+<text x="78" y="655.0" text-anchor="end" font-family="sans-serif" font-size="14">2.891</text>
+<text x="284.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">1195</text>
+<text x="78" y="539.0" text-anchor="end" font-family="sans-serif" font-size="14">3.120</text>
+<text x="478.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">2397</text>
+<text x="78" y="423.0" text-anchor="end" font-family="sans-serif" font-size="14">3.350</text>
+<text x="672.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">3599</text>
+<text x="78" y="307.0" text-anchor="end" font-family="sans-serif" font-size="14">3.579</text>
+<text x="866.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">4801</text>
+<text x="78" y="191.0" text-anchor="end" font-family="sans-serif" font-size="14">3.808</text>
+<text x="1060.0" y="678" text-anchor="middle" font-family="sans-serif" font-size="14">6003</text>
+<text x="78" y="75.0" text-anchor="end" font-family="sans-serif" font-size="14">4.038</text>
 <text x="550.0" y="730" text-anchor="middle" font-family="sans-serif" font-size="18">TP: average compress throughput across fast cases (MiB/s)</text>
 <text x="26" y="380.0" text-anchor="middle" font-family="sans-serif" font-size="18" transform="rotate(-90 26 380.0)">Compression ratio (input bytes / compressed bytes)</text>
-<text x="550.0" y="58" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#666666">Ratio is flat because all plotted baseline and keep rows in results.tsv record the same compressed sizes.</text>
-<line x1="134.1" y1="360.0" x2="169.7" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<line x1="169.7" y1="360.0" x2="787.7" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<line x1="787.7" y1="360.0" x2="812.9" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<line x1="812.9" y1="360.0" x2="818.9" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<line x1="818.9" y1="360.0" x2="836.5" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<line x1="836.5" y1="360.0" x2="847.0" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<line x1="847.0" y1="360.0" x2="847.0" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<line x1="847.0" y1="360.0" x2="986.8" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<line x1="986.8" y1="360.0" x2="1015.9" y2="360.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
-<g><title>step 1: baseline | TP=266.14 MiB/s | ratio=3.958% | baseline</title><circle cx="134.1" cy="360.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="144.1" y="350.0" font-family="sans-serif" font-size="12">1</text></g>
-<g><title>step 3: keep | TP=410.20 MiB/s | ratio=3.958% | skip sequence self-validation outside debug builds</title><circle cx="169.7" cy="360.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="179.7" y="350.0" font-family="sans-serif" font-size="12">3</text></g>
-<g><title>step 5: keep | TP=2912.07 MiB/s | ratio=3.958% | skip compression attempt for sampled incompressible fast blocks</title><circle cx="787.7" cy="360.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="797.7" y="350.0" font-family="sans-serif" font-size="12">5</text></g>
-<g><title>step 6: keep | TP=3014.33 MiB/s | ratio=3.958% | u32 prefix compare and chunked match extension in LZ77</title><circle cx="812.9" cy="360.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="822.9" y="350.0" font-family="sans-serif" font-size="12">6</text></g>
-<g><title>step 7: baseline | TP=3038.57 MiB/s | ratio=3.958% | baseline</title><circle cx="818.9" cy="360.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="828.9" y="350.0" font-family="sans-serif" font-size="12">7</text></g>
-<g><title>step 8: keep | TP=3109.72 MiB/s | ratio=3.958% | sparser middle reinsertion in LZ77 skip</title><circle cx="836.5" cy="360.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="846.5" y="350.0" font-family="sans-serif" font-size="12">8</text></g>
-<g><title>step 9: keep | TP=3152.13 MiB/s | ratio=3.958% | step 8 reinsertion for very long LZ77 matches</title><circle cx="847.0" cy="360.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="857.0" y="350.0" font-family="sans-serif" font-size="12">9</text></g>
-<g><title>step 11: baseline | TP=3152.30 MiB/s | ratio=3.958% | baseline</title><circle cx="847.0" cy="360.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="857.0" y="350.0" font-family="sans-serif" font-size="12">11</text></g>
-<g><title>step 13: keep | TP=3718.30 MiB/s | ratio=3.958% | restructure LZ77 skip insertion into prefix/middle/suffix loops</title><circle cx="986.8" cy="360.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="996.8" y="350.0" font-family="sans-serif" font-size="12">13</text></g>
-<g><title>step 14: keep | TP=3835.99 MiB/s | ratio=3.958% | use unaligned u32/u64 loads in LZ77 hashing and match extension</title><circle cx="1015.9" cy="360.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="1025.9" y="350.0" font-family="sans-serif" font-size="12">14</text></g>
+<line x1="134.1" y1="110.2" x2="157.3" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="157.3" y1="110.2" x2="561.1" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="561.1" y1="110.2" x2="577.6" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="577.6" y1="110.2" x2="581.5" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="581.5" y1="110.2" x2="593.0" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="593.0" y1="110.2" x2="599.9" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="599.9" y1="110.2" x2="599.9" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="599.9" y1="110.2" x2="691.2" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="691.2" y1="110.2" x2="710.2" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="710.2" y1="110.2" x2="716.1" y2="110.2" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="716.1" y1="110.2" x2="746.3" y2="610.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="746.3" y1="610.0" x2="746.3" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="746.3" y1="110.0" x2="738.0" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="738.0" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.9" y1="110.0" x2="1015.9" y2="110.0" stroke="#aaaaaa" stroke-width="2" marker-end="url(#arrow)"/>
+<g><title>step 4: baseline | TP=266.14 MiB/s | ratio=3.958% | baseline</title><circle cx="134.1" cy="110.2" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="144.1" y="100.2" font-family="sans-serif" font-size="12">4</text></g>
+<g><title>step 6: keep | TP=410.20 MiB/s | ratio=3.958% | skip sequence self-validation outside debug builds</title><circle cx="157.3" cy="110.2" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="167.3" y="100.2" font-family="sans-serif" font-size="12">6</text></g>
+<g><title>step 8: keep | TP=2912.07 MiB/s | ratio=3.958% | skip compression attempt for sampled incompressible fast blocks</title><circle cx="561.1" cy="110.2" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="571.1" y="100.2" font-family="sans-serif" font-size="12">8</text></g>
+<g><title>step 9: keep | TP=3014.33 MiB/s | ratio=3.958% | u32 prefix compare and chunked match extension in LZ77</title><circle cx="577.6" cy="110.2" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="587.6" y="100.2" font-family="sans-serif" font-size="12">9</text></g>
+<g><title>step 10: baseline | TP=3038.57 MiB/s | ratio=3.958% | baseline</title><circle cx="581.5" cy="110.2" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="591.5" y="100.2" font-family="sans-serif" font-size="12">10</text></g>
+<g><title>step 11: keep | TP=3109.72 MiB/s | ratio=3.958% | sparser middle reinsertion in LZ77 skip</title><circle cx="593.0" cy="110.2" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="603.0" y="100.2" font-family="sans-serif" font-size="12">11</text></g>
+<g><title>step 12: keep | TP=3152.13 MiB/s | ratio=3.958% | step 8 reinsertion for very long LZ77 matches</title><circle cx="599.9" cy="110.2" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="609.9" y="100.2" font-family="sans-serif" font-size="12">12</text></g>
+<g><title>step 14: baseline | TP=3152.30 MiB/s | ratio=3.958% | baseline</title><circle cx="599.9" cy="110.2" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="609.9" y="100.2" font-family="sans-serif" font-size="12">14</text></g>
+<g><title>step 16: keep | TP=3718.30 MiB/s | ratio=3.958% | restructure LZ77 skip insertion into prefix/middle/suffix loops</title><circle cx="691.2" cy="110.2" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="701.2" y="100.2" font-family="sans-serif" font-size="12">16</text></g>
+<g><title>step 17: keep | TP=3835.99 MiB/s | ratio=3.958% | use unaligned u32/u64 loads in LZ77 hashing and match extension</title><circle cx="710.2" cy="110.2" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="720.2" y="100.2" font-family="sans-serif" font-size="12">17</text></g>
+<g><title>step 18: baseline | TP=3872.20 MiB/s | ratio=3.958% | baseline</title><circle cx="716.1" cy="110.2" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="726.1" y="100.2" font-family="sans-serif" font-size="12">18</text></g>
+<g><title>step 21: keep | TP=4059.51 MiB/s | ratio=2.970% | emit block-level RLE for single-byte blocks and fix RLE payload decoding</title><circle cx="746.3" cy="610.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="756.3" y="600.0" font-family="sans-serif" font-size="12">21</text></g>
+<g><title>step 22: keep | TP=4059.51 MiB/s | ratio=3.959% | read sequence back-references directly from output and stop cloning history per block</title><circle cx="746.3" cy="110.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="756.3" y="100.0" font-family="sans-serif" font-size="12">22</text></g>
+<g><title>step 23: baseline | TP=4008.05 MiB/s | ratio=3.959% | baseline</title><circle cx="738.0" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="748.0" y="100.0" font-family="sans-serif" font-size="12">23</text></g>
+<g><title>step 26: keep | TP=5730.15 MiB/s | ratio=3.959% | chunked repeated-byte detection for block RLE path</title><circle cx="1015.9" cy="110.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">26</text></g>
+<g><title>step 27: baseline | TP=5730.15 MiB/s | ratio=3.959% | baseline</title><circle cx="1015.9" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">27</text></g>
+<g><title>step 32: baseline | TP=5730.15 MiB/s | ratio=3.959% | baseline</title><circle cx="1015.9" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">32</text></g>
+<g><title>step 33: keep | TP=5730.15 MiB/s | ratio=3.959% | stream LZ77 parse events directly into block literal/sequence collection</title><circle cx="1015.9" cy="110.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">33</text></g>
+<g><title>step 34: baseline | TP=5730.15 MiB/s | ratio=3.959% | baseline</title><circle cx="1015.9" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">34</text></g>
+<g><title>step 38: baseline | TP=5730.15 MiB/s | ratio=3.959% | setup baseline on origin/main</title><circle cx="1015.9" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">38</text></g>
+<g><title>step 40: keep | TP=5730.15 MiB/s | ratio=3.959% | port direct parse sink, precomputed length/offset lookup tables, and cached FSE transition tables onto mainline encoder</title><circle cx="1015.9" cy="110.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">40</text></g>
+<g><title>step 41: baseline | TP=5730.15 MiB/s | ratio=3.959% | baseline</title><circle cx="1015.9" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">41</text></g>
+<g><title>step 42: keep | TP=5730.15 MiB/s | ratio=3.959% | cache predefined FSE encoder transitions and remove per-block symbol vectors in sequence encoding</title><circle cx="1015.9" cy="110.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">42</text></g>
+<g><title>step 44: baseline | TP=5730.15 MiB/s | ratio=3.959% | baseline</title><circle cx="1015.9" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">44</text></g>
+<g><title>step 47: baseline | TP=5730.15 MiB/s | ratio=3.959% | baseline after weighted-heuristics merge</title><circle cx="1015.9" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">47</text></g>
+<g><title>step 52: baseline | TP=5730.15 MiB/s | ratio=3.959% | baseline</title><circle cx="1015.9" cy="110.0" r="7" fill="#1f77b4" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">52</text></g>
+<g><title>step 53: keep | TP=5730.15 MiB/s | ratio=3.959% | remove per-block FSE state-path vectors and derive reverse transitions inline during sequence encoding</title><circle cx="1015.9" cy="110.0" r="7" fill="#2ca02c" stroke="white" stroke-width="1.5"/><text x="1025.9" y="100.0" font-family="sans-serif" font-size="12">53</text></g>
 <rect x="880" y="67" width="180" height="92" fill="white" stroke="#cccccc"/>
 <circle cx="900" cy="95" r="6" fill="#1f77b4"/>
 <text x="916" y="100" font-family="sans-serif" font-size="14">baseline</text>
