@@ -79,6 +79,18 @@ These patterns emerged from the results tracked in `results.tsv`:
   Huffman path both regressed weighted compress by ~1.3% while barely moving
   ratio. The extra literal scan is not where the current encoder is paying its
   largest costs.
+- **Literal-table reuse can false-positive on weighted too.** Skipping the
+  rebuild from direct weights back into a normalized Huffman table looked great
+  on the weighted suite (`2330.5 -> 2459.0 MB/s`, `+5.51%`), but exact Silesia
+  comparisons only improved compress by `0.6-1.0%` on levels `1/3/9` and
+  regressed level-19 compress plus level-1/19 decompress beyond the gate. The
+  weighted harness overstated this small-file literal-header win; do not trust
+  it without Silesia confirmation.
+- **Option-tag overhead in cached FSE transitions is below the gate.** Packing
+  the predefined FSE transition cache into dense `u32` entries preserved the
+  bitstream once the field layout was fixed, but only moved weighted compress
+  by `+0.25%`. That is below the current frontier; look for bigger cuts than
+  removing `Option`/tuple overhead from the sequence encoder.
 - **Naive scratch reuse can backfire.** A profiled attempt to reuse
   `MatchFinder` storage with generation-stamped hash/chain tables regressed
   weighted compress from `2301.3` to `2147.1 MB/s` (`-6.70%`) despite flat
