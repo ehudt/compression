@@ -187,6 +187,9 @@ impl MatchFinder {
         if prev == u32::MAX || cand >= pos || pos - cand > self.window_size {
             return None;
         }
+        if load_u32(data, cand) != load_u32(data, pos) {
+            return None;
+        }
         let max_len = (data.len() - pos).min(self.cfg.max_match);
         let len = match_length(data, cand, pos, max_len);
         if len >= self.cfg.min_match {
@@ -210,7 +213,9 @@ impl MatchFinder {
             let prev_long = self.chain[h_long];
             self.chain[h_long] = pos as u32;
             let cand = prev_long as usize;
-            if prev_long != u32::MAX && cand < pos && pos - cand <= self.window_size {
+            if prev_long != u32::MAX && cand < pos && pos - cand <= self.window_size
+                && load_u32(data, cand) == load_u32(data, pos)
+            {
                 let max_len = (data.len() - pos).min(self.cfg.max_match);
                 let len = match_length(data, cand, pos, max_len);
                 if len >= self.cfg.min_match {
@@ -226,6 +231,9 @@ impl MatchFinder {
         self.hash_table[h_short] = pos as u32;
         let cand = prev as usize;
         if prev == u32::MAX || cand >= pos || pos - cand > self.window_size {
+            return None;
+        }
+        if load_u32(data, cand) != load_u32(data, pos) {
             return None;
         }
         let max_len = (data.len() - pos).min(self.cfg.max_match);
