@@ -241,6 +241,33 @@ fn compress_bound_always_sufficient() {
     }
 }
 
+// ── Binary tree match finder ─────────────────────────────────────────────────
+
+#[test]
+fn roundtrip_bt_levels() {
+    let _profile = profile_test("roundtrip_bt_levels");
+    let data = benchmark_repetitive_corpus(256 * 1024);
+    for level in 13..=15 {
+        roundtrip(&data, level);
+    }
+}
+
+#[test]
+fn bt_ratio_similar_to_lazy2() {
+    let _profile = profile_test("bt_ratio_similar_to_lazy2");
+    // BT and lazy2 achieve similar ratios (BT changes search structure, not strategy).
+    // Allow up to 5% variation — they use different parameter sets (e.g. level 12
+    // has hash_log=23 vs level 13's hash_log=22 and only search_log=4).
+    let data = benchmark_repetitive_corpus(256 * 1024);
+    let lazy2_size = compress(&data, 12).unwrap().len();
+    let bt_size = compress(&data, 13).unwrap().len();
+    let threshold = lazy2_size + lazy2_size / 20 + 100; // +5% + 100 bytes slack
+    assert!(
+        bt_size <= threshold,
+        "level 13 (btlazy2) size {bt_size} should be within 5% of level 12 (lazy2) size {lazy2_size}"
+    );
+}
+
 // ── Fast and double-fast strategies ──────────────────────────────────────────
 
 #[test]

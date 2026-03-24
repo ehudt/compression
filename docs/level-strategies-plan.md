@@ -410,7 +410,24 @@ all.
 
 ---
 
-## Step 5: Binary tree match finder
+## Step 5: Binary tree match finder [DONE]
+
+**Summary**: Implemented DUBT (Dicho Unsigned Binary Tree) match finder for
+`BtLazy2` (levels 13-15). `chain` is now double-sized (`2 * (1 << chain_log)`) for
+all BT strategies, with `chain[2*(p&mask)]` = left child and `chain[2*(p&mask)+1]`
+= right child. Added `bt_find_insert` (simultaneously inserts pos as new root and
+finds best match via bounded traversal, `search_depth()` comparisons max). Added
+`match_length_full` (starts from byte 0, unlike `match_length` which assumes first
+4 bytes match). Added `parse_ranges_bt_lazy2` (same 2-lookahead control flow as
+lazy2 but uses `bt_find_insert`). BtOpt/BtUltra/BtUltra2 still fall back to lazy2
+until Step 6. Design doc at `docs/steps/step-5-design.md`.
+
+**Design decisions affecting later steps**:
+- `chain` is already double-sized for BtOpt/BtUltra/BtUltra2 — Step 6 can use BT
+  immediately without reallocation.
+- Interior match positions are not inserted in BT mode (speed trade-off). Step 6
+  may add sparse insertion if ratio tests require it.
+- `match_length_full` is a shared utility; Step 6 optimal parsing will also use it.
 
 **Goal**: Implement a binary tree (BT) match finder for levels 13-15
 (`btlazy2`), replacing hash chains with a sorted binary tree that provides

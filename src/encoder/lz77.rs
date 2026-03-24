@@ -107,19 +107,26 @@ impl MatchConfig {
     }
 }
 
-/// An LZ77 match finder with a hash table and chain links.
+/// An LZ77 match finder with a hash table and a secondary table.
 ///
 /// Positions stored in the hash table and chain are **absolute** offsets from
 /// the start of the frame (not relative to the current block). This allows
 /// `MatchFinder` to be reused across multiple blocks within a frame, giving
 /// the encoder access to cross-block match history.
+///
+/// The `chain` array serves different roles depending on the strategy:
+/// - **Greedy / Lazy / Lazy2**: hash chain (`chain[pos & chain_mask]` = previous pos).
+/// - **DFast**: long-match hash table (indexed by hash value, not position).
+/// - **BT\* strategies**: interleaved binary-tree nodes. Node at position `p` uses
+///   `chain[2 * (p & chain_mask)]` (left child) and `chain[2 * (p & chain_mask) + 1]`
+///   (right child). Allocated at **double** the normal size for these strategies.
 pub struct MatchFinder {
     cfg: MatchConfig,
     /// Hash table: most-recent absolute position for a 4-byte fingerprint.
     hash_table: Vec<u32>,
-    /// Chain: `chain[pos & chain_mask]` = previous absolute position with the same hash.
+    /// Secondary table (chain / long-hash / BT nodes — see struct doc).
     chain: Vec<u32>,
-    /// `(1 << cfg.chain_log) - 1` — mask for indexing into `chain`.
+    /// `(1 << cfg.chain_log) - 1` — mask for the node/slot index.
     chain_mask: usize,
     /// `1 << cfg.window_log` — maximum match offset allowed.
     window_size: usize,
@@ -137,9 +144,16 @@ impl MatchFinder {
     /// Create a new `MatchFinder` sized according to `cfg`.
     pub fn new(cfg: &MatchConfig) -> Self {
         let table_size = 1usize << cfg.hash_log;
-        let chain_size = 1usize << cfg.chain_log;
-        let chain_mask = chain_size - 1;
+        let chain_slots = 1usize << cfg.chain_log;
+        let chain_mask = chain_slots - 1;
         let window_size = 1usize << cfg.window_log;
+        // BT strategies interleave left/right children, requiring double the slots.
+        let chain_size = match cfg.strategy {
+            Strategy::BtLazy2 | Strategy::BtOpt | Strategy::BtUltra | Strategy::BtUltra2 => {
+                2 * chain_slots
+            }
+            _ => chain_slots,
+        };
         Self {
             cfg: cfg.clone(),
             hash_table: vec![u32::MAX; table_size],
@@ -218,6 +232,102 @@ impl MatchFinder {
         let len = match_length(data, cand, pos, max_len);
         if len >= self.cfg.min_match {
             Some(Match { offset: pos - cand, length: len })
+        } else {
+            None
+        }
+    }
+
+    /// Binary-tree match finder: insert `pos` into the DUBT and return the best match.
+    ///
+    /// The `chain` array is used as interleaved BT nodes:
+    /// - `chain[2 * (p & mask)]` = left child of node p (suffixes < p's)
+    /// - `chain[2 * (p & mask) + 1]` = right child of node p (suffixes > p's)
+    ///
+    /// Simultaneously inserts `pos` as the new root and finds the longest match,
+    /// bounded by `cfg.search_depth()` comparisons.
+    fn bt_find_insert(&mut self, data: &[u8], pos: usize) -> Option<Match> {
+        if pos + 4 > data.len() {
+            return None;
+        }
+
+        let h = self.hash4(data, pos);
+        let root = self.hash_table[h];
+        self.hash_table[h] = pos as u32;
+
+        let max_offset = self.window_size.min(self.chain_mask);
+        let max_len = (data.len() - pos).min(self.cfg.max_match);
+        let mask = self.chain_mask;
+        let mut searches = self.cfg.search_depth();
+
+        let pos_slot = pos & mask;
+        // Write targets: chain indices where the next smaller/larger candidate is stored.
+        let mut smaller_write = 2 * pos_slot;     // left child slot of pos
+        let mut larger_write = 2 * pos_slot + 1;  // right child slot of pos
+
+        let mut best_len = 0usize;
+        let mut best_off = 0usize;
+        let mut match_idx = if root == u32::MAX { usize::MAX } else { root as usize };
+
+        while searches > 0 && match_idx != usize::MAX {
+            searches -= 1;
+
+            let cand = match_idx;
+            // Stop if candidate is outside the window or its slot has been recycled.
+            if cand >= pos || pos - cand > max_offset {
+                break;
+            }
+
+            let cand_slot = cand & mask;
+            let common = match_length_full(data, cand, pos, max_len);
+
+            if common > best_len {
+                best_len = common;
+                best_off = pos - cand;
+                if best_len >= max_len {
+                    // Maximum match found: terminate both subtrees and exit.
+                    self.chain[smaller_write] = u32::MAX;
+                    self.chain[larger_write] = u32::MAX;
+                    if best_len >= self.cfg.min_match {
+                        return Some(Match { offset: best_off, length: best_len });
+                    } else {
+                        return None;
+                    }
+                }
+            }
+
+            // Determine traversal direction by comparing byte at the divergence point.
+            // If pos's data ends first (common == max_len == data.len() - pos), treat
+            // as "cand is larger" to avoid an out-of-bounds access.
+            let go_left = pos + common >= data.len()
+                || data[cand + common] >= data[pos + common];
+
+            if go_left {
+                // cand is lexicographically >= pos → cand goes in pos's right (larger) subtree.
+                // Continue down cand's left branch for candidates between pos and cand.
+                self.chain[larger_write] = cand as u32;
+                larger_write = 2 * cand_slot;                          // cand's left child slot
+                match_idx = self.chain[2 * cand_slot] as usize;
+                if self.chain[2 * cand_slot] == u32::MAX {
+                    match_idx = usize::MAX;
+                }
+            } else {
+                // cand is lexicographically < pos → cand goes in pos's left (smaller) subtree.
+                // Continue down cand's right branch.
+                self.chain[smaller_write] = cand as u32;
+                smaller_write = 2 * cand_slot + 1;                     // cand's right child slot
+                match_idx = self.chain[2 * cand_slot + 1] as usize;
+                if self.chain[2 * cand_slot + 1] == u32::MAX {
+                    match_idx = usize::MAX;
+                }
+            }
+        }
+
+        // Terminate dangling subtree pointers.
+        self.chain[smaller_write] = u32::MAX;
+        self.chain[larger_write] = u32::MAX;
+
+        if best_len >= self.cfg.min_match {
+            Some(Match { offset: best_off, length: best_len })
         } else {
             None
         }
@@ -335,6 +445,25 @@ fn load_u64(data: &[u8], pos: usize) -> u64 {
     unsafe { u64::from_le(data.as_ptr().add(pos).cast::<u64>().read_unaligned()) }
 }
 
+/// Full match length from byte 0 (unlike `match_length` which starts at 4).
+///
+/// Used by the BT match finder where the common prefix is not guaranteed to be ≥ 4.
+#[inline]
+fn match_length_full(data: &[u8], a: usize, b: usize, max_len: usize) -> usize {
+    if max_len >= 4 && load_u32(data, a) == load_u32(data, b) {
+        // Fast path: first 4 bytes match — use the word-at-a-time extension.
+        match_length(data, a, b, max_len)
+    } else {
+        // Short common prefix: compare byte by byte up to 3 bytes.
+        let limit = max_len.min(3);
+        let mut len = 0;
+        while len < limit && data[a + len] == data[b + len] {
+            len += 1;
+        }
+        len
+    }
+}
+
 #[inline]
 fn match_length(data: &[u8], cand_pos: usize, pos: usize, max_len: usize) -> usize {
     let mut len = 4;
@@ -448,12 +577,14 @@ pub fn parse_ranges(
         Strategy::Lazy => {
             parse_ranges_lazy(full_data, start, end, finder, sink, 1);
         }
-        // BtLazy2 through BtUltra2 fall back to lazy2 until steps 5-6 implement BT.
-        Strategy::Lazy2
-        | Strategy::BtLazy2
-        | Strategy::BtOpt
-        | Strategy::BtUltra
-        | Strategy::BtUltra2 => {
+        Strategy::Lazy2 => {
+            parse_ranges_lazy(full_data, start, end, finder, sink, 2);
+        }
+        Strategy::BtLazy2 => {
+            parse_ranges_bt_lazy2(full_data, start, end, finder, sink);
+        }
+        // BtOpt / BtUltra / BtUltra2 fall back to lazy2 until Step 6.
+        Strategy::BtOpt | Strategy::BtUltra | Strategy::BtUltra2 => {
             parse_ranges_lazy(full_data, start, end, finder, sink, 2);
         }
     }
@@ -691,6 +822,82 @@ fn parse_ranges_lazy(
     }
 }
 
+/// BT + lazy2: binary-tree match finding with 2-position lookahead.
+///
+/// Same control flow as `parse_ranges_lazy(max_lookahead=2)` but uses
+/// `bt_find_insert` instead of `find_match`. The BT simultaneously inserts and
+/// searches, providing better match quality than a hash chain for the same
+/// search depth. Interior match positions are not inserted (speed trade-off).
+fn parse_ranges_bt_lazy2(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+    mut sink: impl ParseSink,
+) {
+    let data = &full_data[..end];
+    let target_length = finder.cfg.target_length;
+    let mut pos = start;
+    let mut lit_start = start;
+
+    while pos < end {
+        if pos + 4 > end {
+            break;
+        }
+
+        let Some(m0) = finder.bt_find_insert(data, pos) else {
+            pos += 1;
+            continue;
+        };
+
+        // Early accept: match long enough to skip lookahead.
+        if target_length > 0 && m0.length >= target_length {
+            if lit_start < pos {
+                sink.literals(lit_start, pos);
+            }
+            sink.matched(pos, m0.offset, m0.length);
+            pos += m0.length;
+            lit_start = pos;
+            continue;
+        }
+
+        let mut best = m0;
+        let mut best_pos = pos;
+
+        'lookahead: for la in 1..=2usize {
+            let la_pos = pos + la;
+            if la_pos + 4 > end {
+                break;
+            }
+            if let Some(m) = finder.bt_find_insert(data, la_pos) {
+                if target_length > 0 && m.length >= target_length {
+                    best = m;
+                    best_pos = la_pos;
+                    break 'lookahead;
+                }
+                if prefer_match(m, best) {
+                    best = m;
+                    best_pos = la_pos;
+                }
+            }
+        }
+
+        if lit_start < best_pos {
+            sink.literals(lit_start, best_pos);
+        }
+        sink.matched(best_pos, best.offset, best.length);
+
+        // Positions pos..=pos+lookahead_called are already in the BT.
+        // Interior match positions are intentionally not inserted.
+        pos = best_pos + best.length;
+        lit_start = pos;
+    }
+
+    if lit_start < end {
+        sink.literals(lit_start, end);
+    }
+}
+
 /// Returns true if `new_match` is preferable to `old_match`.
 ///
 /// Prefers the new match when its length advantage (weighted 4×) outweighs the
@@ -911,6 +1118,83 @@ mod tests {
         let m = finder.lookup_dfast(&data, 16);
         assert!(m.is_some(), "dfast should find 8-byte match from long table");
         assert_eq!(m.unwrap().offset, 16);
+    }
+
+    #[test]
+    fn test_bt_finds_match_on_repetitive_data() {
+        // BT should find matches in repetitive data, just like greedy.
+        let data: Vec<u8> = b"abcdefgh".iter().cycle().take(256).cloned().collect();
+        let cfg = MatchConfig { min_match: 4, ..MatchConfig::for_level(13) };
+        let mut finder = MatchFinder::new(&cfg);
+        let full_data_len = data.len();
+        let data_slice = &data[..full_data_len];
+
+        // Insert the first 8 positions (no matches yet).
+        for i in 0..8 {
+            finder.bt_find_insert(data_slice, i);
+        }
+        // Now position 8 should find a match back to 0 (same 8-byte pattern).
+        let m = finder.bt_find_insert(data_slice, 8);
+        assert!(m.is_some(), "BT should find a match in repetitive data");
+        let m = m.unwrap();
+        assert!(m.length >= 4, "match length should be >= min_match");
+        assert!(m.offset > 0 && m.offset <= 8);
+    }
+
+    #[test]
+    fn test_bt_respects_window_size() {
+        // Insert a position, then verify candidates outside window_size are rejected.
+        let data: Vec<u8> = b"abcdefgh".iter().cycle().take(4096).cloned().collect();
+        // Use a tiny window (2^10 = 1024 bytes) to exercise the window check.
+        let cfg = MatchConfig {
+            window_log: 10,
+            min_match: 4,
+            ..MatchConfig::for_level(13)
+        };
+        let mut finder = MatchFinder::new(&cfg);
+        let data_slice = &data[..];
+
+        // Insert pos=0.
+        finder.bt_find_insert(data_slice, 0);
+        // pos=8: within window → should find match.
+        let m = finder.bt_find_insert(data_slice, 8);
+        assert!(m.is_some(), "match within window should be found");
+
+        // Skip ahead well past the window (1025 bytes).
+        // Insert pos=1025: pos=0 is now outside the window → should not be returned.
+        for i in 1..1025 {
+            finder.bt_find_insert(data_slice, i);
+        }
+        // pos=1025: offset back to pos=0 is 1025 > window_size=1024 → not a candidate.
+        // But pos=1 .. pos=1024 are inside window, so we still expect a match.
+        let m2 = finder.bt_find_insert(data_slice, 1025);
+        assert!(m2.is_some(), "should still find a match within window");
+        assert!(
+            m2.unwrap().offset <= 1024,
+            "match offset must not exceed window_size"
+        );
+    }
+
+    #[test]
+    fn test_bt_reconstructs_original() {
+        // Full parse via BtLazy2 must reconstruct the original bytes.
+        let data: Vec<u8> = b"abcdefghijklmnop".iter().cycle().take(512).cloned().collect();
+        let cfg = MatchConfig::for_level(13); // BtLazy2
+        let events = parse(&data, &cfg);
+        let mut out = Vec::new();
+        for e in &events {
+            match e {
+                Event::Literals(s, end) => out.extend_from_slice(&data[*s..*end]),
+                Event::Match { pos: _, offset, length } => {
+                    let src = out.len() - offset;
+                    for i in 0..*length {
+                        let b = out[src + i];
+                        out.push(b);
+                    }
+                }
+            }
+        }
+        assert_eq!(out, data, "BtLazy2 parse must reconstruct original");
     }
 
     #[test]
