@@ -3,4 +3,4 @@
 pub mod block;
 pub mod lz77;
 
-pub use lz77::MatchConfig;
+pub use lz77::{MatchConfig, Strategy};

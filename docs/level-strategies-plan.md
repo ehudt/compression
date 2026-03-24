@@ -105,7 +105,22 @@ MML = minMatch, TLen = targetLength.
 
 ---
 
-## Step 1: Parameter table and strategy enum
+## Step 1: Parameter table and strategy enum [DONE]
+
+**Summary**: Added `Strategy` enum (Fast through BtUltra2) and expanded
+`MatchConfig` with `window_log`, `chain_log`, `search_log`, `target_length`,
+and `strategy` fields. Removed the `search_depth` field in favor of a derived
+`search_depth()` method (`1 << search_log`). Rewrote `for_level()` to return
+reference table values for levels 1-19; levels 20-22 use level-19 values.
+Updated `frame.rs` to compute the window descriptor byte from `cfg.window_log`
+(clamped to 17 until Step 2). `Strategy` is re-exported from `encoder/mod.rs`.
+Added 3 unit tests covering all parameter fields and strategies for levels
+1-19, plus the 20-22 clamp behavior. Design doc at `docs/steps/step-1-design.md`.
+
+**Design decisions affecting later steps**:
+- `MatchConfig` name kept (not renamed to `CompressionParams`).
+- `Default` now returns level-5 (Greedy) parameters.
+- `frame.rs` window clamp is at `cfg.window_log.min(17)` — Step 2 removes `min(17)`.
 
 **Goal**: Replace the flat `MatchConfig` with a richer configuration struct that
 mirrors zstd's per-level parameters, and introduce a `Strategy` enum. Wire the

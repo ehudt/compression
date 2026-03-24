@@ -49,9 +49,13 @@ pub fn compress_with_config(
     let fhd: u8 = (2u8 << 6) | (checksum_flag << 2);
     out.push(fhd);
 
-    // Window descriptor (required when single_segment=0)
-    // Encode 128 KiB: exponent=7, mantissa=0 → byte = (7 << 3) | 0 = 56
-    out.push(56u8);
+    // Window descriptor (required when single_segment=0).
+    // Format: byte = (exponent << 3) | mantissa, where window = (1 + mantissa/8) << (10 + exponent).
+    // With mantissa=0: window = 1 << (10 + exponent), so exponent = window_log - 10.
+    // Clamp to 17 until Step 2 enables variable window sizes.
+    let window_log = cfg.window_log.min(17);
+    let window_byte = ((window_log - 10) as u8) << 3;
+    out.push(window_byte);
 
     // Content size (4 bytes, FCS_flag=2)
     out.extend_from_slice(&(content_size as u32).to_le_bytes());
@@ -144,7 +148,7 @@ fn repeated_byte(data: &[u8]) -> Option<u8> {
 }
 
 fn looks_incompressible(data: &[u8], cfg: &MatchConfig) -> bool {
-    if data.len() < 8 * 1024 || cfg.search_depth > 8 {
+    if data.len() < 8 * 1024 || cfg.search_depth() > 8 {
         return false;
     }
 

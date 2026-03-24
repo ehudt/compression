@@ -13,50 +13,96 @@ pub struct Match {
     pub length: usize,
 }
 
-/// Configuration for the LZ77 matcher.
+/// The compression algorithm family (mirrors zstd's strategy enum).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strategy {
+    Fast,
+    DFast,
+    Greedy,
+    Lazy,
+    Lazy2,
+    BtLazy2,
+    BtOpt,
+    BtUltra,
+    BtUltra2,
+}
+
+/// Configuration for the LZ77 matcher, mirroring zstd's per-level parameters.
 #[derive(Debug, Clone)]
 pub struct MatchConfig {
-    /// Minimum match length to emit (zstd minimum is 3).
-    pub min_match: usize,
-    /// Maximum match length (zstd maximum is 131_074).
-    pub max_match: usize,
-    /// How many hash-chain links to follow (search depth).
-    pub search_depth: usize,
+    /// Log2 of the history window size (controls how far back matches can reach).
+    pub window_log: usize,
+    /// Log2 of the hash-chain / binary-tree table size.
+    pub chain_log: usize,
     /// Log2 of the hash table size.
     pub hash_log: usize,
+    /// Log2 of the maximum search attempts per position.
+    pub search_log: usize,
+    /// Minimum match length to emit.
+    pub min_match: usize,
+    /// Early-accept threshold: matches longer than this skip lazy evaluation (0 = disabled).
+    pub target_length: usize,
+    /// Algorithm family.
+    pub strategy: Strategy,
+    /// Maximum match length (zstd maximum is 131_074).
+    pub max_match: usize,
+}
+
+impl MatchConfig {
+    /// Derived: actual search attempt count = 1 << search_log.
+    #[inline]
+    pub fn search_depth(&self) -> usize {
+        1 << self.search_log
+    }
 }
 
 impl Default for MatchConfig {
+    /// Returns level-5 (Greedy) parameters — the first level using the
+    /// greedy algorithm that all current code implements.
     fn default() -> Self {
-        Self {
-            min_match: 3,
-            max_match: 131_074,
-            search_depth: 32,
-            hash_log: 17,
-        }
+        Self::for_level(5)
     }
 }
 
 impl MatchConfig {
     /// Create a config tuned for a given compression level (1-22).
+    ///
+    /// Parameters match the reference zstd implementation's `clevels.h` table
+    /// for inputs > 256 KiB. Levels 20-22 use level-19 values.
     pub fn for_level(level: i32) -> Self {
         let level = level.clamp(1, 22);
-        let search_depth = match level {
-            1..=3 => 8,
-            4..=7 => 32,
-            8..=12 => 128,
-            _ => 512,
-        };
-        let hash_log = match level {
-            1..=3 => 14,
-            4..=7 => 17,
-            _ => 20,
-        };
+        let (window_log, chain_log, hash_log, search_log, min_match, target_length, strategy) =
+            match level {
+                1 => (19, 13, 14, 1, 7, 0, Strategy::Fast),
+                2 => (20, 15, 16, 1, 6, 0, Strategy::Fast),
+                3 => (21, 16, 17, 1, 5, 0, Strategy::DFast),
+                4 => (21, 18, 18, 1, 5, 0, Strategy::DFast),
+                5 => (21, 18, 19, 3, 5, 2, Strategy::Greedy),
+                6 => (21, 18, 19, 3, 5, 4, Strategy::Lazy),
+                7 => (21, 19, 20, 4, 5, 8, Strategy::Lazy),
+                8 => (21, 19, 20, 4, 5, 16, Strategy::Lazy2),
+                9 => (22, 20, 21, 4, 5, 16, Strategy::Lazy2),
+                10 => (22, 21, 22, 5, 5, 16, Strategy::Lazy2),
+                11 => (22, 21, 22, 6, 5, 16, Strategy::Lazy2),
+                12 => (22, 22, 23, 6, 5, 32, Strategy::Lazy2),
+                13 => (22, 22, 22, 4, 5, 32, Strategy::BtLazy2),
+                14 => (22, 22, 23, 5, 5, 32, Strategy::BtLazy2),
+                15 => (22, 23, 23, 6, 5, 32, Strategy::BtLazy2),
+                16 => (22, 22, 22, 5, 5, 48, Strategy::BtOpt),
+                17 => (23, 23, 22, 5, 4, 64, Strategy::BtOpt),
+                18 => (23, 23, 22, 6, 3, 64, Strategy::BtUltra),
+                // Levels 19-22 all use level-19 values.
+                _ => (23, 24, 22, 7, 3, 256, Strategy::BtUltra2),
+            };
         Self {
-            min_match: 3,
-            max_match: 131_074,
-            search_depth,
+            window_log,
+            chain_log,
             hash_log,
+            search_log,
+            min_match,
+            target_length,
+            strategy,
+            max_match: 131_074,
         }
     }
 }
@@ -117,7 +163,7 @@ impl MatchFinder {
         let max_offset = WINDOW_SIZE;
         let needle = load_u32(data, pos);
         let max_len = (data.len() - pos).min(self.cfg.max_match);
-        for _ in 0..self.cfg.search_depth {
+        for _ in 0..self.cfg.search_depth() {
             if candidate == u32::MAX {
                 break;
             }
@@ -344,6 +390,92 @@ mod tests {
         let events = parse(&data, &MatchConfig::default());
         let has_match = events.iter().any(|e| matches!(e, Event::Match { .. }));
         assert!(has_match, "should find matches in repetitive data");
+    }
+
+    /// Expected params for each level: (window_log, chain_log, hash_log, search_log, min_match, target_length)
+    #[rustfmt::skip]
+    const LEVEL_PARAMS: &[(usize, usize, usize, usize, usize, usize)] = &[
+        (19, 13, 14, 1, 7,   0),  // 1
+        (20, 15, 16, 1, 6,   0),  // 2
+        (21, 16, 17, 1, 5,   0),  // 3
+        (21, 18, 18, 1, 5,   0),  // 4
+        (21, 18, 19, 3, 5,   2),  // 5
+        (21, 18, 19, 3, 5,   4),  // 6
+        (21, 19, 20, 4, 5,   8),  // 7
+        (21, 19, 20, 4, 5,  16),  // 8
+        (22, 20, 21, 4, 5,  16),  // 9
+        (22, 21, 22, 5, 5,  16),  // 10
+        (22, 21, 22, 6, 5,  16),  // 11
+        (22, 22, 23, 6, 5,  32),  // 12
+        (22, 22, 22, 4, 5,  32),  // 13
+        (22, 22, 23, 5, 5,  32),  // 14
+        (22, 23, 23, 6, 5,  32),  // 15
+        (22, 22, 22, 5, 5,  48),  // 16
+        (23, 23, 22, 5, 4,  64),  // 17
+        (23, 23, 22, 6, 3,  64),  // 18
+        (23, 24, 22, 7, 3, 256),  // 19
+    ];
+
+    #[rustfmt::skip]
+    const LEVEL_STRATEGIES: &[Strategy] = &[
+        Strategy::Fast,     // 1
+        Strategy::Fast,     // 2
+        Strategy::DFast,    // 3
+        Strategy::DFast,    // 4
+        Strategy::Greedy,   // 5
+        Strategy::Lazy,     // 6
+        Strategy::Lazy,     // 7
+        Strategy::Lazy2,    // 8
+        Strategy::Lazy2,    // 9
+        Strategy::Lazy2,    // 10
+        Strategy::Lazy2,    // 11
+        Strategy::Lazy2,    // 12
+        Strategy::BtLazy2,  // 13
+        Strategy::BtLazy2,  // 14
+        Strategy::BtLazy2,  // 15
+        Strategy::BtOpt,    // 16
+        Strategy::BtOpt,    // 17
+        Strategy::BtUltra,  // 18
+        Strategy::BtUltra2, // 19
+    ];
+
+    #[test]
+    fn test_for_level_params() {
+        for (i, &(wlog, clog, hlog, slog, mml, tlen)) in LEVEL_PARAMS.iter().enumerate() {
+            let level = (i + 1) as i32;
+            let cfg = MatchConfig::for_level(level);
+            assert_eq!(cfg.window_log, wlog, "window_log mismatch at level {level}");
+            assert_eq!(cfg.chain_log, clog, "chain_log mismatch at level {level}");
+            assert_eq!(cfg.hash_log, hlog, "hash_log mismatch at level {level}");
+            assert_eq!(cfg.search_log, slog, "search_log mismatch at level {level}");
+            assert_eq!(cfg.min_match, mml, "min_match mismatch at level {level}");
+            assert_eq!(cfg.target_length, tlen, "target_length mismatch at level {level}");
+        }
+    }
+
+    #[test]
+    fn test_for_level_strategy() {
+        for (i, &expected) in LEVEL_STRATEGIES.iter().enumerate() {
+            let level = (i + 1) as i32;
+            let cfg = MatchConfig::for_level(level);
+            assert_eq!(cfg.strategy, expected, "strategy mismatch at level {level}");
+        }
+    }
+
+    #[test]
+    fn test_for_level_clamp() {
+        // Levels 20-22 should return the same params as level 19.
+        let base = MatchConfig::for_level(19);
+        for level in [20, 21, 22] {
+            let cfg = MatchConfig::for_level(level);
+            assert_eq!(cfg.window_log, base.window_log, "level {level}");
+            assert_eq!(cfg.chain_log, base.chain_log, "level {level}");
+            assert_eq!(cfg.hash_log, base.hash_log, "level {level}");
+            assert_eq!(cfg.search_log, base.search_log, "level {level}");
+            assert_eq!(cfg.min_match, base.min_match, "level {level}");
+            assert_eq!(cfg.target_length, base.target_length, "level {level}");
+            assert_eq!(cfg.strategy, base.strategy, "level {level}");
+        }
     }
 
     #[test]
