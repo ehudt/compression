@@ -126,6 +126,7 @@ pub struct MatchFinder {
 }
 
 const HASH_PRIME: u64 = 0x9E3779B1_9E3779B1;
+const HASH_PRIME_64: u64 = 0x9E3779B9_7F4A7C15;
 
 impl MatchFinder {
     /// The maximum match offset this finder allows (= `1 << cfg.window_log`).
@@ -153,6 +154,73 @@ impl MatchFinder {
         let bytes = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()) as u64;
         let h = bytes.wrapping_mul(HASH_PRIME);
         (h >> (64 - self.cfg.hash_log)) as usize
+    }
+
+    /// Hash an 8-byte sequence at `pos`; produces `chain_log` bits (for DFast long table).
+    fn hash8(&self, data: &[u8], pos: usize) -> usize {
+        let bytes = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
+        (bytes.wrapping_mul(HASH_PRIME_64) >> (64 - self.cfg.chain_log)) as usize
+    }
+
+    /// Fast strategy: single hash-table lookup + insert. No chain walking.
+    ///
+    /// Returns a match if `length >= cfg.min_match`; always updates `hash_table`.
+    fn lookup_fast(&mut self, data: &[u8], pos: usize) -> Option<Match> {
+        let h = self.hash4(data, pos);
+        let prev = self.hash_table[h];
+        self.hash_table[h] = pos as u32;
+        let cand = prev as usize;
+        if prev == u32::MAX || cand >= pos || pos - cand > self.window_size {
+            return None;
+        }
+        let max_len = (data.len() - pos).min(self.cfg.max_match);
+        let len = match_length(data, cand, pos, max_len);
+        if len >= self.cfg.min_match {
+            Some(Match { offset: pos - cand, length: len })
+        } else {
+            None
+        }
+    }
+
+    /// Double-fast strategy: tries the long (8-byte) hash table first, then the
+    /// short (4-byte) table. Both tables are always updated.
+    ///
+    /// The `chain` array is repurposed as the long hash table (indexed by hash value,
+    /// not position). This is exclusive with the chain usage in Greedy/Lazy modes.
+    fn lookup_dfast(&mut self, data: &[u8], pos: usize) -> Option<Match> {
+        let h_short = self.hash4(data, pos);
+
+        // Try the long (8-byte) hash table first.
+        if pos + 8 <= data.len() {
+            let h_long = self.hash8(data, pos);
+            let prev_long = self.chain[h_long];
+            self.chain[h_long] = pos as u32;
+            let cand = prev_long as usize;
+            if prev_long != u32::MAX && cand < pos && pos - cand <= self.window_size {
+                let max_len = (data.len() - pos).min(self.cfg.max_match);
+                let len = match_length(data, cand, pos, max_len);
+                if len >= self.cfg.min_match {
+                    // Also update short hash so it stays fresh.
+                    self.hash_table[h_short] = pos as u32;
+                    return Some(Match { offset: pos - cand, length: len });
+                }
+            }
+        }
+
+        // Fall back to short (4-byte) hash table.
+        let prev = self.hash_table[h_short];
+        self.hash_table[h_short] = pos as u32;
+        let cand = prev as usize;
+        if prev == u32::MAX || cand >= pos || pos - cand > self.window_size {
+            return None;
+        }
+        let max_len = (data.len() - pos).min(self.cfg.max_match);
+        let len = match_length(data, cand, pos, max_len);
+        if len >= self.cfg.min_match {
+            Some(Match { offset: pos - cand, length: len })
+        } else {
+            None
+        }
     }
 
     /// Insert absolute position `pos` into the hash table and return the previous entry.
@@ -368,7 +436,13 @@ pub fn parse_ranges(
     sink: impl ParseSink,
 ) {
     match finder.cfg.strategy {
-        Strategy::Greedy | Strategy::Fast | Strategy::DFast => {
+        Strategy::Fast => {
+            parse_ranges_fast(full_data, start, end, finder, sink);
+        }
+        Strategy::DFast => {
+            parse_ranges_dfast(full_data, start, end, finder, sink);
+        }
+        Strategy::Greedy => {
             parse_ranges_greedy(full_data, start, end, finder, sink);
         }
         Strategy::Lazy => {
@@ -419,6 +493,93 @@ fn parse_ranges_greedy(
             }
             _ => {
                 pos += 1;
+            }
+        }
+    }
+
+    if lit_start < end {
+        sink.literals(lit_start, end);
+    }
+}
+
+/// Fast LZ77: single hash-table lookup per position, no chain walking.
+///
+/// On a miss, the step size grows with the distance from the last anchor
+/// (`step = 1 + (pos - lit_start) >> search_log`), aggressively skipping
+/// stretches of non-matching data for maximum throughput. Skipped positions
+/// are not inserted — this is intentional for the fast strategy.
+fn parse_ranges_fast(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+    mut sink: impl ParseSink,
+) {
+    let data = &full_data[..end];
+    let search_log = finder.cfg.search_log;
+    let mut pos = start;
+    let mut lit_start = start;
+
+    while pos < end {
+        if pos + 4 > end {
+            break;
+        }
+
+        match finder.lookup_fast(data, pos) {
+            Some(m) => {
+                if lit_start < pos {
+                    sink.literals(lit_start, pos);
+                }
+                sink.matched(pos, m.offset, m.length);
+                pos += m.length;
+                lit_start = pos;
+            }
+            None => {
+                // Skip grows with distance from last anchor (reference zstd behaviour).
+                let step = 1 + ((pos - lit_start) >> search_log);
+                pos += step;
+            }
+        }
+    }
+
+    if lit_start < end {
+        sink.literals(lit_start, end);
+    }
+}
+
+/// Double-fast LZ77: tries a long (8-byte) hash first, then a short (4-byte) hash.
+///
+/// The `chain` array is repurposed as the long hash table for this strategy.
+/// Same anchor-relative skip logic as `parse_ranges_fast`.
+fn parse_ranges_dfast(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+    mut sink: impl ParseSink,
+) {
+    let data = &full_data[..end];
+    let search_log = finder.cfg.search_log;
+    let mut pos = start;
+    let mut lit_start = start;
+
+    while pos < end {
+        if pos + 4 > end {
+            break;
+        }
+
+        match finder.lookup_dfast(data, pos) {
+            Some(m) => {
+                if lit_start < pos {
+                    sink.literals(lit_start, pos);
+                }
+                sink.matched(pos, m.offset, m.length);
+                pos += m.length;
+                lit_start = pos;
+            }
+            None => {
+                let step = 1 + ((pos - lit_start) >> search_log);
+                pos += step;
             }
         }
     }
@@ -692,6 +853,64 @@ mod tests {
             }
         }
         assert_eq!(reconstructed, original);
+    }
+
+    #[test]
+    fn test_lookup_fast_single_lookup() {
+        // pos=0 and pos=8 share only the first 4 bytes ("abcd"), then diverge.
+        // match_length will measure exactly 4.
+        // pos=16 and pos=8 also share only "abcd" (same structure).
+        let data = b"abcdEFGHabcdIJKLabcdMNOP";
+        //            0       8       16
+
+        // min_match=3: a 4-byte match qualifies.
+        let cfg3 = MatchConfig { min_match: 3, ..MatchConfig::for_level(1) };
+        let mut finder3 = MatchFinder::new(&cfg3);
+
+        // First lookup inserts pos=0; no prior entry → no match.
+        assert!(finder3.lookup_fast(data, 0).is_none());
+        // pos=8 has the same 4-byte prefix as pos=0 → finds a 4-byte match.
+        let m = finder3.lookup_fast(data, 8);
+        assert!(m.is_some(), "should find match at pos=8 referencing pos=0");
+        assert_eq!(m.unwrap().offset, 8);
+
+        // pos=16 finds pos=8 (the new hash-table head), NOT pos=0 (would need chain).
+        let m2 = finder3.lookup_fast(data, 16);
+        assert!(m2.is_some());
+        assert_eq!(m2.unwrap().offset, 8, "fast should only find the most-recent entry (no chain)");
+
+        // min_match=7: a 4-byte match is too short → rejected.
+        let cfg7 = MatchConfig { min_match: 7, ..MatchConfig::for_level(1) };
+        let mut finder7 = MatchFinder::new(&cfg7);
+        finder7.lookup_fast(data, 0);
+        assert!(
+            finder7.lookup_fast(data, 8).is_none(),
+            "min_match=7 should reject a 4-byte match"
+        );
+    }
+
+    #[test]
+    fn test_lookup_dfast_long_table_priority() {
+        // Craft data where pos=0 and pos=16 share an 8-byte prefix but NOT the same
+        // 4-byte prefix in the short table (different bytes at positions 4-7).
+        // The long hash should find the 8-byte match.
+        let mut data = [0u8; 48];
+        // pos=0: "ABCDEFGHXXX..."
+        data[0..8].copy_from_slice(b"ABCDEFGH");
+        // pos=16: same 8-byte prefix
+        data[16..24].copy_from_slice(b"ABCDEFGH");
+        // pos=32: different 4-byte prefix but same 8-byte prefix as pos=16
+        data[32..40].copy_from_slice(b"ABCDEFGH");
+
+        let cfg = MatchConfig { min_match: 4, ..MatchConfig::for_level(3) }; // DFast
+        let mut finder = MatchFinder::new(&cfg);
+
+        // Insert pos=0; no prior entries → no match.
+        assert!(finder.lookup_dfast(&data, 0).is_none());
+        // pos=16 should match pos=0 via long table.
+        let m = finder.lookup_dfast(&data, 16);
+        assert!(m.is_some(), "dfast should find 8-byte match from long table");
+        assert_eq!(m.unwrap().offset, 16);
     }
 
     #[test]

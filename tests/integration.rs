@@ -241,6 +241,31 @@ fn compress_bound_always_sufficient() {
     }
 }
 
+// ── Fast and double-fast strategies ──────────────────────────────────────────
+
+#[test]
+fn roundtrip_fast_dfast_levels() {
+    let _profile = profile_test("roundtrip_fast_dfast_levels");
+    let data = benchmark_repetitive_corpus(64 * 1024);
+    for level in 1..=4 {
+        roundtrip(&data, level);
+    }
+}
+
+#[test]
+fn fast_strategy_compresses_repetitive_data() {
+    let _profile = profile_test("fast_strategy_compresses_repetitive_data");
+    let data = benchmark_repetitive_corpus(64 * 1024);
+    let compressed = compress(&data, 1).unwrap();
+    // Fast strategy (level 1) should still compress repetitive data meaningfully.
+    assert!(
+        compressed.len() < data.len() / 2,
+        "level 1 should compress repetitive data to <50%, got {} / {}",
+        compressed.len(),
+        data.len()
+    );
+}
+
 // ── Lazy matching ─────────────────────────────────────────────────────────────
 
 #[test]

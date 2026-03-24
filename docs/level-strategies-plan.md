@@ -341,7 +341,23 @@ logic in `ZSTD_count()` and `ZSTD_BtFindBestMatch_selectMLS()`.
 
 ---
 
-## Step 4: Fast and double-fast strategies
+## Step 4: Fast and double-fast strategies [DONE]
+
+**Summary**: Added `parse_ranges_fast` (single `hash_table` lookup, no chain) and
+`parse_ranges_dfast` (long `chain`-repurposed hash using 8-byte key, then short
+`hash_table` with 4-byte key). Both use anchor-relative skip: on a miss, advance
+by `1 + (pos - lit_start) >> search_log`. Added `hash8` (64-bit prime, `chain_log`
+bits), `lookup_fast`, and `lookup_dfast` methods to `MatchFinder`. `parse_ranges`
+dispatch updated: Fast → `parse_ranges_fast`, DFast → `parse_ranges_dfast`. Design
+doc at `docs/steps/step-4-design.md`.
+
+**Design decisions affecting later steps**:
+- `chain` is repurposed as the long hash table for DFast (indexed by hash value, not
+  position). This is exclusive with chain-link usage in Greedy/Lazy/BT modes.
+- Fast/DFast do not insert positions inside matches (speed over ratio). Cross-block
+  history still works at the match-start granularity.
+- `lookup_fast` / `lookup_dfast` are `MatchFinder` methods and do not update chain
+  links, so they can safely coexist with the chain-based `find_match`.
 
 **Goal**: Implement the `fast` and `dfast` strategies for levels 1-4, which are
 simpler than the current greedy approach and should be faster.
