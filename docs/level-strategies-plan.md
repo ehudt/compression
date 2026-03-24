@@ -255,7 +255,26 @@ history. Study how the current `parse_ranges()` flow works and whether
 
 ---
 
-## Step 3: Lazy and lazy2 matching
+## Step 3: Lazy and lazy2 matching [DONE]
+
+**Summary**: `parse_ranges` now dispatches on `strategy`: greedy (extracted to
+`parse_ranges_greedy`) for Fast/DFast/Greedy; `parse_ranges_lazy` with
+`max_lookahead=1` for Lazy; `parse_ranges_lazy` with `max_lookahead=2` for Lazy2
+and all BT strategies (temporary fallback until Step 5). The lazy algorithm calls
+`find_match` at lookahead positions (which inserts them), picks the best match via
+the `prefer_match` heuristic (`4×length_gain > offset_bit_delta`), and skips only
+uninserted positions to avoid chain self-loops. `target_length` early-accept is
+implemented for both the initial match and lookahead matches. Integration test
+`lazy2_ratio_better_than_greedy` confirms level 8 compresses better than level 5
+on repetitive text. Design doc at `docs/steps/step-3-design.md`.
+
+**Design decisions affecting later steps**:
+- BtLazy2/BtOpt/BtUltra/BtUltra2 all use `max_lookahead=2` (lazy2) until Step 5
+  replaces them with real binary-tree match finding.
+- `prefer_match` heuristic is defined once and shared; Step 5's BT finder will
+  reuse it for the lazy2 decision layer on top of BT search.
+- `parse_ranges_greedy` and `parse_ranges_lazy` are private; the public interface
+  is unchanged.
 
 **Goal**: Implement lazy match evaluation for levels 6-12 (strategies `lazy`
 and `lazy2`), where the encoder checks whether deferring a match by 1-2

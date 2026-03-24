@@ -241,6 +241,31 @@ fn compress_bound_always_sufficient() {
     }
 }
 
+// ── Lazy matching ─────────────────────────────────────────────────────────────
+
+#[test]
+fn roundtrip_lazy_levels() {
+    let _profile = profile_test("roundtrip_lazy_levels");
+    let data = benchmark_repetitive_corpus(64 * 1024);
+    // All lazy and lazy2 levels: 6-12
+    for level in 6..=12 {
+        roundtrip(&data, level);
+    }
+}
+
+#[test]
+fn lazy2_ratio_better_than_greedy() {
+    let _profile = profile_test("lazy2_ratio_better_than_greedy");
+    // On compressible text, lazy2 (level 8) should compress better than greedy (level 5).
+    let data = benchmark_repetitive_corpus(256 * 1024);
+    let greedy_size = compress(&data, 5).unwrap().len();
+    let lazy2_size = compress(&data, 8).unwrap().len();
+    assert!(
+        lazy2_size < greedy_size,
+        "level 8 (lazy2) size {lazy2_size} should be < level 5 (greedy) size {greedy_size}"
+    );
+}
+
 // ── Compression ratio sanity ─────────────────────────────────────────────────
 
 #[test]

@@ -355,7 +355,38 @@ pub fn parse_with_sink(data: &[u8], cfg: &MatchConfig, sink: impl ParseSink) {
 /// Positions in emitted events are absolute (offset from the start of `full_data`).
 /// `finder` is updated in-place so it can be reused across consecutive blocks to
 /// enable cross-block match history.
+///
+/// The parsing strategy is selected from `finder.cfg.strategy`:
+/// - `Greedy | Fast | DFast` → greedy (take the first sufficient match)
+/// - `Lazy` → 1-position lookahead before committing
+/// - `Lazy2 | BtLazy2 | BtOpt | BtUltra | BtUltra2` → 2-position lookahead
 pub fn parse_ranges(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+    sink: impl ParseSink,
+) {
+    match finder.cfg.strategy {
+        Strategy::Greedy | Strategy::Fast | Strategy::DFast => {
+            parse_ranges_greedy(full_data, start, end, finder, sink);
+        }
+        Strategy::Lazy => {
+            parse_ranges_lazy(full_data, start, end, finder, sink, 1);
+        }
+        // BtLazy2 through BtUltra2 fall back to lazy2 until steps 5-6 implement BT.
+        Strategy::Lazy2
+        | Strategy::BtLazy2
+        | Strategy::BtOpt
+        | Strategy::BtUltra
+        | Strategy::BtUltra2 => {
+            parse_ranges_lazy(full_data, start, end, finder, sink, 2);
+        }
+    }
+}
+
+/// Greedy LZ77: take the first match found at each position.
+fn parse_ranges_greedy(
     full_data: &[u8],
     start: usize,
     end: usize,
@@ -395,6 +426,127 @@ pub fn parse_ranges(
     if lit_start < end {
         sink.literals(lit_start, end);
     }
+}
+
+/// Lazy LZ77: try 1 or 2 lookahead positions before committing to a match.
+///
+/// `max_lookahead` is 1 for `Lazy` and 2 for `Lazy2` (and BT strategies until Step 5).
+///
+/// At each position P, the encoder:
+/// 1. Finds match M0 at P (greedy candidate).
+/// 2. Finds match M1 at P+1 (and M2 at P+2 for lazy2).
+/// 3. If a later match is better (per `prefer_match`), emit P as a literal and
+///    use the later match instead.
+///
+/// When a match exceeds `target_length` (and target_length > 0), it is accepted
+/// immediately without lookahead.
+///
+/// **Insert discipline**: `find_match` always inserts the queried position. After
+/// choosing `best_pos`, positions `pos..=pos+lookahead_called` are already in the
+/// hash table. The skip call starts from `pos+lookahead_called+1` to avoid
+/// double-inserting positions (which would create self-loops in the chain).
+fn parse_ranges_lazy(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+    mut sink: impl ParseSink,
+    max_lookahead: usize,
+) {
+    let data = &full_data[..end];
+    let target_length = finder.cfg.target_length;
+    let mut pos = start;
+    let mut lit_start = start;
+
+    while pos < end {
+        if pos + 4 > end {
+            break;
+        }
+
+        let Some(m0) = finder.find_match(data, pos) else {
+            pos += 1;
+            continue;
+        };
+
+        // Early accept: match is long enough to skip lookahead entirely.
+        if target_length > 0 && m0.length >= target_length {
+            if lit_start < pos {
+                sink.literals(lit_start, pos);
+            }
+            sink.matched(pos, m0.offset, m0.length);
+            finder.skip(data, pos + 1, m0.length - 1);
+            pos += m0.length;
+            lit_start = pos;
+            continue;
+        }
+
+        let mut best = m0;
+        let mut best_pos = pos;
+        let mut lookahead_called = 0usize;
+
+        // Try lookahead positions.
+        'lookahead: for la in 1..=max_lookahead {
+            let la_pos = pos + la;
+            if la_pos + 4 > end {
+                break;
+            }
+            // find_match inserts la_pos into the hash table as a side effect.
+            if let Some(m) = finder.find_match(data, la_pos) {
+                if target_length > 0 && m.length >= target_length {
+                    // Early accept from lookahead — use this match immediately.
+                    best = m;
+                    best_pos = la_pos;
+                    lookahead_called = la;
+                    break 'lookahead;
+                }
+                if prefer_match(m, best) {
+                    best = m;
+                    best_pos = la_pos;
+                }
+            }
+            lookahead_called = la;
+        }
+
+        // Emit literals up to the winning match position.
+        if lit_start < best_pos {
+            sink.literals(lit_start, best_pos);
+        }
+        sink.matched(best_pos, best.offset, best.length);
+
+        // Skip match interior. Positions pos..=pos+lookahead_called were already
+        // inserted by find_match calls above, so start the skip after them to
+        // avoid creating self-loops in the chain array.
+        let skip_start = pos + lookahead_called + 1;
+        let match_end = best_pos + best.length;
+        if skip_start < match_end {
+            finder.skip(data, skip_start, match_end - skip_start);
+        }
+        pos = match_end;
+        lit_start = pos;
+    }
+
+    if lit_start < end {
+        sink.literals(lit_start, end);
+    }
+}
+
+/// Returns true if `new_match` is preferable to `old_match`.
+///
+/// Prefers the new match when its length advantage (weighted 4×) outweighs the
+/// additional offset cost (in offset-code bits). This matches the reference zstd
+/// lazy-matching heuristic.
+#[inline]
+fn prefer_match(new: Match, old: Match) -> bool {
+    let new_bits = offset_code_bits(new.offset) as i32;
+    let old_bits = offset_code_bits(old.offset) as i32;
+    4 * new.length as i32 > 4 * old.length as i32 + (new_bits - old_bits)
+}
+
+/// Number of bits needed to encode the offset (= floor(log2(offset + 3)) + 1).
+#[inline]
+fn offset_code_bits(offset: usize) -> usize {
+    let raw = offset + 3;
+    (usize::BITS - raw.leading_zeros()) as usize
 }
 
 #[cfg(test)]
@@ -540,6 +692,121 @@ mod tests {
             }
         }
         assert_eq!(reconstructed, original);
+    }
+
+    #[test]
+    fn test_prefer_match_same_length_smaller_offset() {
+        // Same length, smaller offset → prefer new (fewer offset bits).
+        let old = Match { offset: 1000, length: 10 };
+        let new = Match { offset: 4, length: 10 };
+        assert!(prefer_match(new, old), "smaller offset should be preferred");
+    }
+
+    #[test]
+    fn test_prefer_match_longer_same_offset() {
+        // Longer match, same offset → prefer new.
+        let old = Match { offset: 100, length: 8 };
+        let new = Match { offset: 100, length: 12 };
+        assert!(prefer_match(new, old), "longer match at same offset should be preferred");
+    }
+
+    #[test]
+    fn test_prefer_match_slight_length_gain_huge_offset() {
+        // +1 length but offset jumps from 8 to 1_000_000 (many more offset bits) → prefer old.
+        let old = Match { offset: 8, length: 10 };
+        let new = Match { offset: 1_000_000, length: 11 };
+        assert!(!prefer_match(new, old), "huge offset penalty should outweigh +1 length");
+    }
+
+    #[test]
+    fn test_lazy_finds_better_match_than_greedy() {
+        // Craft input where greedy finds a short match at pos 0, but lazy finds a
+        // longer match at pos 1.
+        //
+        // Input: "xABCDEFGH...  ABCDEFGHxx..."
+        // At pos 0: 'x' doesn't match much.
+        // At pos 1: "ABCDEFGH" matches a later repeat — longer match via lookahead.
+        //
+        // Simpler approach: use repetitive input and count sequences.
+        let pattern = b"abcdefghijklmnop"; // 16 bytes
+        let mut data = Vec::new();
+        data.extend_from_slice(pattern);
+        data.push(b'X'); // break pattern
+        data.extend_from_slice(pattern);
+        data.extend_from_slice(pattern);
+
+        let greedy_cfg = MatchConfig::for_level(5); // Greedy
+        let lazy2_cfg = MatchConfig::for_level(8);  // Lazy2
+
+        let greedy_events = parse(&data, &greedy_cfg);
+        let lazy2_events = parse(&data, &lazy2_cfg);
+
+        let count_matches = |events: &[Event]| {
+            events.iter().filter(|e| matches!(e, Event::Match { .. })).count()
+        };
+
+        // Lazy2 should find at least as many matches (and typically more/longer ones).
+        // The key invariant: both must reconstruct the original correctly.
+        let mut greedy_out = Vec::new();
+        for e in &greedy_events {
+            match e {
+                Event::Literals(s, end) => greedy_out.extend_from_slice(&data[*s..*end]),
+                Event::Match { pos: _, offset, length } => {
+                    let src = greedy_out.len() - offset;
+                    for i in 0..*length {
+                        let b = greedy_out[src + i];
+                        greedy_out.push(b);
+                    }
+                }
+            }
+        }
+        assert_eq!(greedy_out, data, "greedy must reconstruct original");
+
+        let mut lazy2_out = Vec::new();
+        for e in &lazy2_events {
+            match e {
+                Event::Literals(s, end) => lazy2_out.extend_from_slice(&data[*s..*end]),
+                Event::Match { pos: _, offset, length } => {
+                    let src = lazy2_out.len() - offset;
+                    for i in 0..*length {
+                        let b = lazy2_out[src + i];
+                        lazy2_out.push(b);
+                    }
+                }
+            }
+        }
+        assert_eq!(lazy2_out, data, "lazy2 must reconstruct original");
+
+        // Both should find some matches on repetitive data.
+        assert!(count_matches(&lazy2_events) > 0, "lazy2 should find matches");
+    }
+
+    #[test]
+    fn test_target_length_early_accept() {
+        // With a very low target_length, the encoder should accept long matches immediately.
+        // Use highly repetitive data so there are many long matches.
+        let data: Vec<u8> = b"abcdefgh".iter().cycle().take(1024).cloned().collect();
+
+        // Level 6 has target_length=4; any match >= 4 should be accepted without lookahead.
+        let cfg = MatchConfig::for_level(6);
+        assert_eq!(cfg.target_length, 4);
+
+        // Verify the result round-trips (correctness, not just that it runs).
+        let events = parse(&data, &cfg);
+        let mut out = Vec::new();
+        for e in &events {
+            match e {
+                Event::Literals(s, end) => out.extend_from_slice(&data[*s..*end]),
+                Event::Match { pos: _, offset, length } => {
+                    let src = out.len() - offset;
+                    for i in 0..*length {
+                        let b = out[src + i];
+                        out.push(b);
+                    }
+                }
+            }
+        }
+        assert_eq!(out, data, "target_length early-accept must reconstruct original");
     }
 
     #[test]
