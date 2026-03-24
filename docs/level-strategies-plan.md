@@ -173,7 +173,28 @@ strategy.
 
 ---
 
-## Step 2: Variable window sizes
+## Step 2: Variable window sizes [DONE]
+
+**Summary**: `MatchFinder` is now dynamically sized from `window_log` and
+`chain_log`. Removed `WINDOW_LOG`/`WINDOW_SIZE` constants; `window_size` and
+`chain_mask` are per-instance fields. `MatchFinder` is created once per frame
+and passed by `&mut` reference to `encode_block` and `parse_ranges`, enabling
+cross-block match history. `encode_block` signature changed to
+`(full_data, start, end, finder)`. `parse_ranges` similarly takes absolute
+start/end positions into `full_data`. Window descriptor byte in `frame.rs` now
+uses `cfg.window_log` directly (no `min(17)` clamp). `offset_code()` changed to
+direct computation (no lookup table), removing the hardcoded 128 KiB offset
+limit. Debug validation (`validate_sequences`) seeded with prior window history
+so cross-block match offsets are correctly verified. Design doc at
+`docs/steps/step-2-design.md`.
+
+**Design decisions affecting later steps**:
+- `encode_block` no longer takes `cfg` — the finder carries config. If later
+  steps need cfg directly in encode_block, pass it back or expose via finder.
+- `MatchFinder::window_size()` public method exposed for validation use.
+- `chain` is sized by `chain_log` (not `window_log`); at levels 15 and 19
+  `chain_log > window_log`, so the chain array is slightly oversized for the
+  greedy algorithm — this is correct and intentional (Step 5 BT will use it).
 
 **Goal**: Allow the encoder to use window sizes larger than 128 KiB, controlled
 by the `window_log` parameter from Step 1.

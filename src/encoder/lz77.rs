@@ -108,30 +108,43 @@ impl MatchConfig {
 }
 
 /// An LZ77 match finder with a hash table and chain links.
+///
+/// Positions stored in the hash table and chain are **absolute** offsets from
+/// the start of the frame (not relative to the current block). This allows
+/// `MatchFinder` to be reused across multiple blocks within a frame, giving
+/// the encoder access to cross-block match history.
 pub struct MatchFinder {
     cfg: MatchConfig,
-    /// Hash table: position of the last occurrence of a 4-byte fingerprint.
+    /// Hash table: most-recent absolute position for a 4-byte fingerprint.
     hash_table: Vec<u32>,
-    /// Chain: `chain[pos & window_mask]` = previous position with the same hash.
+    /// Chain: `chain[pos & chain_mask]` = previous absolute position with the same hash.
     chain: Vec<u32>,
-    window_mask: usize,
+    /// `(1 << cfg.chain_log) - 1` — mask for indexing into `chain`.
+    chain_mask: usize,
+    /// `1 << cfg.window_log` — maximum match offset allowed.
+    window_size: usize,
 }
-
-const WINDOW_LOG: usize = 17; // 128 KiB window (zstd default for level 1-3)
-const WINDOW_SIZE: usize = 1 << WINDOW_LOG;
 
 const HASH_PRIME: u64 = 0x9E3779B1_9E3779B1;
 
 impl MatchFinder {
-    /// Create a new `MatchFinder` with the given configuration.
-    pub fn new(cfg: MatchConfig) -> Self {
+    /// The maximum match offset this finder allows (= `1 << cfg.window_log`).
+    pub fn window_size(&self) -> usize {
+        self.window_size
+    }
+
+    /// Create a new `MatchFinder` sized according to `cfg`.
+    pub fn new(cfg: &MatchConfig) -> Self {
         let table_size = 1usize << cfg.hash_log;
-        let window_mask = WINDOW_SIZE - 1;
+        let chain_size = 1usize << cfg.chain_log;
+        let chain_mask = chain_size - 1;
+        let window_size = 1usize << cfg.window_log;
         Self {
-            cfg,
+            cfg: cfg.clone(),
             hash_table: vec![u32::MAX; table_size],
-            chain: vec![u32::MAX; WINDOW_SIZE],
-            window_mask,
+            chain: vec![u32::MAX; chain_size],
+            chain_mask,
+            window_size,
         }
     }
 
@@ -142,16 +155,19 @@ impl MatchFinder {
         (h >> (64 - self.cfg.hash_log)) as usize
     }
 
-    /// Insert position `pos` into the hash table and return the previous entry.
+    /// Insert absolute position `pos` into the hash table and return the previous entry.
     fn insert(&mut self, data: &[u8], pos: usize) -> u32 {
         let h = self.hash4(data, pos);
         let prev = self.hash_table[h];
         self.hash_table[h] = pos as u32;
-        self.chain[pos & self.window_mask] = prev;
+        self.chain[pos & self.chain_mask] = prev;
         prev
     }
 
-    /// Find the best match starting at `pos` in `data`.
+    /// Find the best match starting at absolute position `pos` in `data`.
+    ///
+    /// `data` should be `&full_frame_data[..block_end]` so that `data.len()` bounds
+    /// the maximum match length to the current block.
     pub fn find_match(&mut self, data: &[u8], pos: usize) -> Option<Match> {
         if pos + 4 > data.len() {
             return None;
@@ -160,7 +176,7 @@ impl MatchFinder {
         let mut candidate = self.insert(data, pos);
         let mut best_len = 0usize;
         let mut best_off = 0usize;
-        let max_offset = WINDOW_SIZE;
+        let max_offset = self.window_size;
         let needle = load_u32(data, pos);
         let max_len = (data.len() - pos).min(self.cfg.max_match);
         for _ in 0..self.cfg.search_depth() {
@@ -175,7 +191,7 @@ impl MatchFinder {
 
             // Check first 4 bytes quickly
             if load_u32(data, cand_pos) != needle {
-                candidate = self.chain[cand_pos & self.window_mask];
+                candidate = self.chain[cand_pos & self.chain_mask];
                 continue;
             }
 
@@ -190,7 +206,7 @@ impl MatchFinder {
                 }
             }
 
-            candidate = self.chain[cand_pos & self.window_mask];
+            candidate = self.chain[cand_pos & self.chain_mask];
         }
 
         if best_len >= self.cfg.min_match {
@@ -203,7 +219,9 @@ impl MatchFinder {
         }
     }
 
-    /// Register all positions in a literal run (so the hash table stays up-to-date).
+    /// Register positions in a matched run so the hash table stays up-to-date.
+    ///
+    /// `data` should be `&full_frame_data[..block_end]`.
     pub fn skip(&mut self, data: &[u8], pos: usize, length: usize) {
         let sparse_step = match length {
             0..=24 => 1,
@@ -313,9 +331,12 @@ impl ParseSink for EventSink<'_> {
 /// Run LZ77 on `data` and produce a sequence of events.
 pub fn parse(data: &[u8], cfg: &MatchConfig) -> Vec<Event> {
     let mut events = Vec::new();
-    parse_with_sink(
+    let mut finder = MatchFinder::new(cfg);
+    parse_ranges(
         data,
-        cfg,
+        0,
+        data.len(),
+        &mut finder,
         EventSink {
             events: &mut events,
         },
@@ -325,18 +346,32 @@ pub fn parse(data: &[u8], cfg: &MatchConfig) -> Vec<Event> {
 
 /// Run LZ77 on `data` and stream events to `sink`.
 pub fn parse_with_sink(data: &[u8], cfg: &MatchConfig, sink: impl ParseSink) {
-    parse_ranges(data, cfg, sink);
+    let mut finder = MatchFinder::new(cfg);
+    parse_ranges(data, 0, data.len(), &mut finder, sink);
 }
 
-/// Run LZ77 on `data`, streaming literal ranges and matches through `sink`.
-pub fn parse_ranges(data: &[u8], cfg: &MatchConfig, mut sink: impl ParseSink) {
-    let mut finder = MatchFinder::new(cfg.clone());
-    let mut pos = 0;
-    let mut lit_start = 0;
+/// Run LZ77 on the range `[start, end)` of `full_data`, streaming events to `sink`.
+///
+/// Positions in emitted events are absolute (offset from the start of `full_data`).
+/// `finder` is updated in-place so it can be reused across consecutive blocks to
+/// enable cross-block match history.
+pub fn parse_ranges(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+    mut sink: impl ParseSink,
+) {
+    // Expose only data up to `end` so `data.len()` naturally bounds match lengths
+    // to the current block while still allowing lookback into previous blocks.
+    let data = &full_data[..end];
+    let cfg = finder.cfg.clone();
+    let mut pos = start;
+    let mut lit_start = start;
 
-    while pos < data.len() {
-        if pos + 4 > data.len() {
-            // Not enough bytes left for a match; emit as literals.
+    while pos < end {
+        if pos + 4 > end {
+            // Not enough bytes left in block for a match; emit tail as literals.
             break;
         }
 
@@ -357,8 +392,8 @@ pub fn parse_ranges(data: &[u8], cfg: &MatchConfig, mut sink: impl ParseSink) {
         }
     }
 
-    if lit_start < data.len() {
-        sink.literals(lit_start, data.len());
+    if lit_start < end {
+        sink.literals(lit_start, end);
     }
 }
 
@@ -505,5 +540,60 @@ mod tests {
             }
         }
         assert_eq!(reconstructed, original);
+    }
+
+    #[test]
+    fn test_cross_block_history() {
+        // Build two "blocks" where the second block can match content from the first.
+        // Pattern appears in block 1 (bytes 0-63) and is repeated in block 2 (bytes 64-127).
+        let pattern = b"abcdefghijklmnop"; // 16 bytes, repeated
+        let block1: Vec<u8> = pattern.iter().cycle().take(64).cloned().collect();
+        let block2: Vec<u8> = pattern.iter().cycle().take(64).cloned().collect();
+        let full_data: Vec<u8> = [block1.as_slice(), block2.as_slice()].concat();
+
+        // Use a config with enough window to cover both blocks.
+        let cfg = MatchConfig {
+            window_log: 17, // 128 KiB window
+            min_match: 3,
+            ..MatchConfig::for_level(5)
+        };
+        let mut finder = MatchFinder::new(&cfg);
+        let mut events = Vec::new();
+
+        // Process block 1 first to populate the history.
+        parse_ranges(
+            &full_data,
+            0,
+            64,
+            &mut finder,
+            EventSink {
+                events: &mut events,
+            },
+        );
+
+        let mut events2 = Vec::new();
+        // Process block 2 — should find matches back into block 1.
+        parse_ranges(
+            &full_data,
+            64,
+            128,
+            &mut finder,
+            EventSink {
+                events: &mut events2,
+            },
+        );
+
+        let has_cross_block_match = events2.iter().any(|e| {
+            if let Event::Match { pos, offset, .. } = e {
+                // A match whose source is in block 1 (pos - offset < 64)
+                *pos >= 64 && pos.saturating_sub(*offset) < 64
+            } else {
+                false
+            }
+        });
+        assert!(
+            has_cross_block_match,
+            "expected at least one match spanning block boundary"
+        );
     }
 }

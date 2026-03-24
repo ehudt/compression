@@ -9,7 +9,7 @@
 //! The block encoder parses LZ77 events and emits sequence commands using the
 //! predefined FSE tables for literal-length, match-length, and offset codes.
 
-use super::lz77::{ParseSink, parse_ranges};
+use super::lz77::{MatchFinder, ParseSink, parse_ranges};
 use crate::decoder::sequences::{decode_sequences, execute_sequences};
 use crate::error::Result;
 use crate::fse::{BitWriter, FseDecodeTable, build_decode_table};
@@ -89,22 +89,33 @@ impl ParseSink for SequenceCollector<'_> {
 
 /// Encode a block of data into compressed form.
 ///
+/// `full_data` is the entire frame input; `start..end` is the current block range.
+/// `finder` is the frame-scoped match finder (carries cross-block history).
+///
 /// Returns the compressed bytes (without block header).
-pub fn encode_block(data: &[u8], cfg: &super::MatchConfig) -> Result<Vec<u8>> {
-    if data.is_empty() {
+pub fn encode_block(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+) -> Result<Vec<u8>> {
+    if start == end {
         // One-byte "0 raw literals" + one-byte "0 sequences"
         return Ok(vec![0x00, 0x00]);
     }
 
-    let (mut literals, mut sequences) = collect_sequences(data, cfg);
+    let block_data = &full_data[start..end];
+    let (mut literals, mut sequences) = collect_sequences(full_data, start, end, finder);
     let mut seq_section = encode_sequences(&sequences);
-    if should_validate_sequences()
-        && !sequences.is_empty()
-        && !validate_sequences(data, &literals, &seq_section)
-    {
-        literals = data.to_vec();
-        sequences.clear();
-        seq_section = encode_sequences(&sequences);
+    if should_validate_sequences() && !sequences.is_empty() {
+        // Prior history: up to one window worth of bytes preceding this block.
+        let prior_start = start.saturating_sub(finder.window_size());
+        let prior = &full_data[prior_start..start];
+        if !validate_sequences(block_data, prior, &literals, &seq_section) {
+            literals = block_data.to_vec();
+            sequences.clear();
+            seq_section = encode_sequences(&sequences);
+        }
     }
 
     let mut out = encode_literals(&literals)?;
@@ -117,32 +128,47 @@ fn should_validate_sequences() -> bool {
     cfg!(debug_assertions)
 }
 
-fn validate_sequences(original: &[u8], literals: &[u8], seq_section: &[u8]) -> bool {
+/// Validate that `seq_section` + `literals` reconstructs `original` when applied
+/// against `prior` history (the preceding window bytes from earlier blocks).
+fn validate_sequences(
+    original: &[u8],
+    prior: &[u8],
+    literals: &[u8],
+    seq_section: &[u8],
+) -> bool {
     std::panic::catch_unwind(|| {
         let Ok((decoded, _)) = decode_sequences(seq_section) else {
             return false;
         };
-        let mut reconstructed = Vec::new();
+        // Seed the output buffer with prior history so cross-block offsets resolve.
+        let mut reconstructed = prior.to_vec();
+        let prior_len = reconstructed.len();
         if execute_sequences(&decoded, literals, &mut reconstructed).is_err() {
             return false;
         }
-        reconstructed == original
+        reconstructed[prior_len..] == *original
     })
     .unwrap_or(false)
 }
 
-fn collect_sequences(data: &[u8], cfg: &super::MatchConfig) -> (Vec<u8>, Vec<EncodedSequence>) {
+fn collect_sequences(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+) -> (Vec<u8>, Vec<EncodedSequence>) {
+    let block_len = end - start;
     let mut collector = SequenceCollector {
-        data,
-        literals: Vec::with_capacity(data.len() / 4),
-        sequences: Vec::with_capacity(data.len() / 32),
+        data: full_data,
+        literals: Vec::with_capacity(block_len / 4),
+        sequences: Vec::with_capacity(block_len / 32),
         pending_lit_len: 0,
         invalid: false,
     };
-    parse_ranges(data, cfg, &mut collector);
+    parse_ranges(full_data, start, end, finder, &mut collector);
 
     if collector.invalid {
-        (data.to_vec(), Vec::new())
+        (full_data[start..end].to_vec(), Vec::new())
     } else {
         (collector.literals, collector.sequences)
     }
@@ -165,12 +191,17 @@ fn match_length_code(value: usize) -> Option<(usize, u32)> {
 }
 
 fn offset_code(offset: usize) -> Option<(usize, u32)> {
-    static TABLE: OnceLock<Vec<(u8, u32)>> = OnceLock::new();
-    TABLE
-        .get_or_init(build_offset_code_table)
-        .get(offset)
-        .copied()
-        .map(|(code, extra)| (code as usize, extra))
+    if offset == 0 {
+        return None;
+    }
+    // zstd non-repeat offset: raw_offset = offset + 3
+    // of_code = floor(log2(raw_offset)), of_extra = raw_offset - (1 << of_code)
+    let raw = offset + 3;
+    let code = usize::BITS as usize - 1 - raw.leading_zeros() as usize;
+    if code >= OFFSET_DEFAULT_NORM.len() {
+        return None; // offset too large for predefined table
+    }
+    Some((code, (raw - (1 << code)) as u32))
 }
 
 fn lookup_length_code(value: usize, table: &[(u8, u32)]) -> Option<(usize, u32)> {
@@ -196,17 +227,6 @@ fn build_length_code_table(table: &[(u32, u8)]) -> Vec<(u8, u32)> {
     lookup
 }
 
-fn build_offset_code_table() -> Vec<(u8, u32)> {
-    const MAX_OFFSET: usize = 128 * 1024;
-
-    let mut lookup = vec![(0u8, 0u32); MAX_OFFSET + 1];
-    for offset in 1..=MAX_OFFSET {
-        let raw_offset = offset + 3;
-        let of_code = usize::BITS as usize - 1 - raw_offset.leading_zeros() as usize;
-        lookup[offset] = (of_code as u8, (raw_offset - (1usize << of_code)) as u32);
-    }
-    lookup
-}
 
 fn encode_sequences(sequences: &[EncodedSequence]) -> Vec<u8> {
     if sequences.is_empty() {

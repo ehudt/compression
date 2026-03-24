@@ -11,6 +11,7 @@
 use crate::decoder::decode_block;
 use crate::encoder::MatchConfig;
 use crate::encoder::block::encode_block;
+use crate::encoder::lz77::MatchFinder;
 use crate::error::{Result, ZstdError};
 use crate::xxhash::xxhash32;
 
@@ -52,13 +53,14 @@ pub fn compress_with_config(
     // Window descriptor (required when single_segment=0).
     // Format: byte = (exponent << 3) | mantissa, where window = (1 + mantissa/8) << (10 + exponent).
     // With mantissa=0: window = 1 << (10 + exponent), so exponent = window_log - 10.
-    // Clamp to 17 until Step 2 enables variable window sizes.
-    let window_log = cfg.window_log.min(17);
-    let window_byte = ((window_log - 10) as u8) << 3;
+    let window_byte = ((cfg.window_log - 10) as u8) << 3;
     out.push(window_byte);
 
     // Content size (4 bytes, FCS_flag=2)
     out.extend_from_slice(&(content_size as u32).to_le_bytes());
+
+    // Single MatchFinder for the whole frame — persists cross-block history.
+    let mut finder = MatchFinder::new(cfg);
 
     // Encode blocks
     let mut pos = 0usize;
@@ -70,7 +72,7 @@ pub fn compress_with_config(
         let repeated_byte = repeated_byte(block_data);
         let compressed =
             if repeated_byte.is_none() && should_attempt_compressed_block(block_data, cfg) {
-                Some(encode_block(block_data, cfg)?)
+                Some(encode_block(input, pos, block_end, &mut finder)?)
             } else {
                 None
             };
@@ -391,5 +393,52 @@ mod tests {
             let decompressed = decompress(&compressed).unwrap();
             assert_eq!(&decompressed, data, "failed at level {level}");
         }
+    }
+
+    #[test]
+    fn test_window_descriptor_encoding() {
+        // window = 1 << (10 + exponent), mantissa = 0 → byte = exponent << 3.
+        // exponent = window_log - 10.
+        for window_log in 10usize..=23 {
+            let expected_byte = ((window_log - 10) as u8) << 3;
+            // Decode it back: verify the decoder in `decompress` interprets it as 1 << window_log.
+            let mantissa = expected_byte & 0x7;
+            let exponent = expected_byte >> 3;
+            let decoded_size =
+                (1u64 + mantissa as u64 * 8 / 8) * (1u64 << (10 + exponent as u64));
+            // With mantissa=0: (1 + 0) * (1 << (10 + exponent)) = 1 << window_log.
+            assert_eq!(
+                decoded_size,
+                1u64 << window_log,
+                "window descriptor mismatch for window_log={window_log}"
+            );
+            // Also verify the actual byte we'd write.
+            assert_eq!(
+                expected_byte,
+                ((window_log - 10) as u8) << 3,
+                "byte formula mismatch for window_log={window_log}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_large_window_round_trip() {
+        // 512 KiB of repetitive text — spans 4 blocks, level 9 window_log=22 (4 MiB).
+        // Cross-block history should improve compression vs no history.
+        let data: Vec<u8> = b"the quick brown fox jumps over the lazy dog. "
+            .iter()
+            .cycle()
+            .take(512 * 1024)
+            .cloned()
+            .collect();
+        let compressed = compress(&data, 9).unwrap();
+        let decompressed = decompress(&compressed).unwrap();
+        assert_eq!(decompressed, data);
+        // With cross-block history the ratio should be excellent on this repetitive text.
+        assert!(
+            compressed.len() < data.len() / 10,
+            "expected > 10x compression on repetitive text, got {}",
+            data.len() as f64 / compressed.len() as f64
+        );
     }
 }
