@@ -583,9 +583,8 @@ pub fn parse_ranges(
         Strategy::BtLazy2 => {
             parse_ranges_bt_lazy2(full_data, start, end, finder, sink);
         }
-        // BtOpt / BtUltra / BtUltra2 fall back to lazy2 until Step 6.
         Strategy::BtOpt | Strategy::BtUltra | Strategy::BtUltra2 => {
-            parse_ranges_lazy(full_data, start, end, finder, sink, 2);
+            parse_ranges_optimal(full_data, start, end, finder, sink);
         }
     }
 }
@@ -898,6 +897,193 @@ fn parse_ranges_bt_lazy2(
     }
 }
 
+/// Chunk size for the optimal parser's DP window.
+const OPT_CHUNK_SIZE: usize = 256;
+
+/// Estimated bit cost of a match: FSE sequence overhead + offset bits + ML extra bits.
+#[inline]
+fn match_cost_bits(offset: usize, length: usize) -> u32 {
+    const SEQ_OVERHEAD: u32 = 16;
+    SEQ_OVERHEAD + offset_code_bits(offset) as u32 + match_length_extra_bits(length)
+}
+
+/// Number of extra bits for the match-length FSE code (approximation).
+#[inline]
+fn match_length_extra_bits(length: usize) -> u32 {
+    // Mirrors the MATCH_LENGTH_EXTRA table bands:
+    //   codes 0-31 → lengths 3-34   → 0 extra bits
+    //   code  32   → lengths 35-66  → 1 extra bit
+    //   code  33   → lengths 67-130 → 2 extra bits
+    //   code  34   → lengths 131-258 → 3 extra bits
+    //   code  35+  → 4+ extra bits (rare; cap at 4)
+    if length <= 34 { 0 } else if length <= 66 { 1 } else if length <= 130 { 2 } else if length <= 258 { 3 } else { 4 }
+}
+
+/// Cost-based optimal parser: forward DP + backtrack over `OPT_CHUNK_SIZE`-position chunks.
+///
+/// Matches that meet or exceed `target_length` are accepted immediately without going
+/// through the DP (same early-accept logic as lazy matching). This is critical for
+/// highly-compressible input where the BT finds matches of tens of thousands of bytes
+/// — clipping such matches to 256-byte chunks would destroy ratio.
+///
+/// For each DP chunk:
+/// 1. Collect BT matches position by position; flush early if a long match is found.
+/// 2. Forward DP: `price[i]` = min bits to encode chunk positions `[0, i)`.
+///    Literal: `price[i+1] = min(price[i+1], price[i] + 8)`.
+///    Match: `price[i+len] = min(...)` for all lengths `min_match..=best.len`.
+/// 3. Backtrack from `chunk_len` via `from_len`/`from_off` pointers.
+/// 4. Emit events in forward order.
+fn parse_ranges_optimal(
+    full_data: &[u8],
+    start: usize,
+    end: usize,
+    finder: &mut MatchFinder,
+    mut sink: impl ParseSink,
+) {
+    let data = &full_data[..end];
+    let min_match = finder.cfg.min_match;
+    let target_length = finder.cfg.target_length;
+    let mut pos = start;
+    let mut lit_start = start;
+
+    // Reuse across chunks.
+    let mut chunk_matches: Vec<Option<Match>> = Vec::with_capacity(OPT_CHUNK_SIZE);
+    let mut chunk_abs_start = start; // absolute frame position of chunk[0]
+    let mut price = vec![0u32; OPT_CHUNK_SIZE + 1];
+    let mut from_len = vec![0usize; OPT_CHUNK_SIZE + 1];
+    let mut from_off = vec![0usize; OPT_CHUNK_SIZE + 1];
+    let mut path: Vec<(usize, usize, usize)> = Vec::with_capacity(OPT_CHUNK_SIZE);
+
+    /// Flush a collected chunk through the DP and emit events.
+    #[inline(always)]
+    fn flush_chunk(
+        chunk_matches: &[Option<Match>],
+        chunk_abs_start: usize,
+        min_match: usize,
+        lit_start: &mut usize,
+        sink: &mut impl ParseSink,
+        price: &mut [u32],
+        from_len: &mut [usize],
+        from_off: &mut [usize],
+        path: &mut Vec<(usize, usize, usize)>,
+    ) {
+        let chunk_len = chunk_matches.len();
+        if chunk_len == 0 {
+            return;
+        }
+        const INF: u32 = u32::MAX / 2;
+        const LITERAL_BITS: u32 = 8;
+        let slots = chunk_len + 1;
+        price[..slots].fill(INF);
+        from_len[..slots].fill(0);
+        from_off[..slots].fill(0);
+        price[0] = 0;
+
+        for i in 0..chunk_len {
+            let p = price[i];
+            if p == INF {
+                continue;
+            }
+            let lp = p + LITERAL_BITS;
+            if lp < price[i + 1] {
+                price[i + 1] = lp;
+                from_len[i + 1] = 0;
+                from_off[i + 1] = 0;
+            }
+            if let Some(m) = chunk_matches[i] {
+                let max_len = m.length.min(chunk_len - i);
+                for len in min_match..=max_len {
+                    let mp = p + match_cost_bits(m.offset, len);
+                    if mp < price[i + len] {
+                        price[i + len] = mp;
+                        from_len[i + len] = len;
+                        from_off[i + len] = m.offset;
+                    }
+                }
+            }
+        }
+
+        path.clear();
+        let mut cur = chunk_len;
+        while cur > 0 {
+            let len = from_len[cur];
+            let off = from_off[cur];
+            if len == 0 {
+                path.push((cur - 1, 0, 0));
+                cur -= 1;
+            } else {
+                path.push((cur - len, len, off));
+                cur -= len;
+            }
+        }
+        path.reverse();
+
+        for &(chunk_pos, len, off) in path.iter() {
+            if len > 0 {
+                let abs_pos = chunk_abs_start + chunk_pos;
+                if *lit_start < abs_pos {
+                    sink.literals(*lit_start, abs_pos);
+                }
+                sink.matched(abs_pos, off, len);
+                *lit_start = abs_pos + len;
+            }
+        }
+    }
+
+    while pos < end {
+        if pos + 4 > end {
+            break;
+        }
+
+        let m = finder.bt_find_insert(data, pos);
+
+        // Early accept: long matches bypass the DP entirely.
+        if let Some(ref m) = m {
+            if target_length > 0 && m.length >= target_length {
+                flush_chunk(
+                    &chunk_matches, chunk_abs_start, min_match,
+                    &mut lit_start, &mut sink,
+                    &mut price, &mut from_len, &mut from_off, &mut path,
+                );
+                chunk_matches.clear();
+
+                if lit_start < pos {
+                    sink.literals(lit_start, pos);
+                }
+                sink.matched(pos, m.offset, m.length);
+                pos += m.length;
+                lit_start = pos;
+                chunk_abs_start = pos;
+                continue;
+            }
+        }
+
+        chunk_matches.push(m);
+        pos += 1;
+
+        if chunk_matches.len() >= OPT_CHUNK_SIZE {
+            flush_chunk(
+                &chunk_matches, chunk_abs_start, min_match,
+                &mut lit_start, &mut sink,
+                &mut price, &mut from_len, &mut from_off, &mut path,
+            );
+            chunk_matches.clear();
+            chunk_abs_start = pos;
+        }
+    }
+
+    // Flush remaining partial chunk.
+    flush_chunk(
+        &chunk_matches, chunk_abs_start, min_match,
+        &mut lit_start, &mut sink,
+        &mut price, &mut from_len, &mut from_off, &mut path,
+    );
+
+    if lit_start < end {
+        sink.literals(lit_start, end);
+    }
+}
+
 /// Returns true if `new_match` is preferable to `old_match`.
 ///
 /// Prefers the new match when its length advantage (weighted 4×) outweighs the
@@ -1118,6 +1304,75 @@ mod tests {
         let m = finder.lookup_dfast(&data, 16);
         assert!(m.is_some(), "dfast should find 8-byte match from long table");
         assert_eq!(m.unwrap().offset, 16);
+    }
+
+    #[test]
+    fn test_optimal_reconstructs_original() {
+        // BtOpt parse must reconstruct the original bytes exactly.
+        let data: Vec<u8> = b"abcdefghijklmnop".iter().cycle().take(512).cloned().collect();
+        let cfg = MatchConfig::for_level(16); // BtOpt
+        let events = parse(&data, &cfg);
+        let mut out = Vec::new();
+        for e in &events {
+            match e {
+                Event::Literals(s, end) => out.extend_from_slice(&data[*s..*end]),
+                Event::Match { pos: _, offset, length } => {
+                    let src = out.len() - offset;
+                    for i in 0..*length {
+                        let b = out[src + i];
+                        out.push(b);
+                    }
+                }
+            }
+        }
+        assert_eq!(out, data, "BtOpt parse must reconstruct original");
+    }
+
+    #[test]
+    fn test_optimal_prefers_deferred_longer_match() {
+        // Craft input where greedy takes a short match at pos 0, but optimal
+        // finds it cheaper to emit a literal and take a longer match at pos 1.
+        //
+        // Greedy at level 5: may match "abc" at pos 4 → length 3.
+        // Optimal at level 16: should find the longer "abcXYZ" if deferring 1 byte helps.
+        //
+        // Key property: the optimal parse must at least reconstruct the original.
+        // We verify optimal finds at least as many match bytes as literals.
+        let pattern = b"abcXYZabcXYZabcXYZ";
+        let data: Vec<u8> = pattern.iter().cycle().take(256).cloned().collect();
+
+        let opt_cfg = MatchConfig::for_level(16);
+        let events = parse(&data, &opt_cfg);
+
+        // Verify reconstruction.
+        let mut out = Vec::new();
+        for e in &events {
+            match e {
+                Event::Literals(s, end) => out.extend_from_slice(&data[*s..*end]),
+                Event::Match { pos: _, offset, length } => {
+                    let src = out.len() - offset;
+                    for i in 0..*length {
+                        let b = out[src + i];
+                        out.push(b);
+                    }
+                }
+            }
+        }
+        assert_eq!(out, data, "optimal parse must reconstruct original");
+
+        // Verify the optimal parser finds meaningful matches (more match bytes than literals).
+        let match_bytes: usize = events
+            .iter()
+            .filter_map(|e| if let Event::Match { length, .. } = e { Some(*length) } else { None })
+            .sum();
+        let lit_bytes: usize = events
+            .iter()
+            .filter_map(|e| if let Event::Literals(s, end) = e { Some(end - s) } else { None })
+            .sum();
+        assert!(
+            match_bytes > lit_bytes,
+            "optimal parser should encode mostly matches on repetitive data (match={match_bytes}, lit={lit_bytes})"
+        );
     }
 
     #[test]

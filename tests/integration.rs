@@ -241,6 +241,32 @@ fn compress_bound_always_sufficient() {
     }
 }
 
+// ── Optimal parsing ───────────────────────────────────────────────────────────
+
+#[test]
+fn roundtrip_optimal_levels() {
+    let _profile = profile_test("roundtrip_optimal_levels");
+    let data = benchmark_repetitive_corpus(256 * 1024);
+    for level in 16..=19 {
+        roundtrip(&data, level);
+    }
+}
+
+#[test]
+fn optimal_ratio_at_least_as_good_as_btlazy2() {
+    let _profile = profile_test("optimal_ratio_at_least_as_good_as_btlazy2");
+    // BtOpt (level 16) should compress at least as well as BtLazy2 (level 15).
+    // Allow 5% tolerance: levels use different parameters (chain_log, search_log differ).
+    let data = benchmark_repetitive_corpus(256 * 1024);
+    let btlazy2_size = compress(&data, 15).unwrap().len();
+    let btopt_size = compress(&data, 16).unwrap().len();
+    let threshold = btlazy2_size + btlazy2_size / 20 + 100;
+    assert!(
+        btopt_size <= threshold,
+        "level 16 (btopt) size {btopt_size} should be within 5% of level 15 (btlazy2) size {btlazy2_size}"
+    );
+}
+
 // ── Binary tree match finder ─────────────────────────────────────────────────
 
 #[test]

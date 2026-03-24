@@ -492,7 +492,27 @@ for the match state structures.
 
 ---
 
-## Step 6: Optimal parsing
+## Step 6: Optimal parsing [DONE]
+
+**Summary**: Implemented cost-based optimal parsing for levels 16-19 (`BtOpt`,
+`BtUltra`, `BtUltra2`). Added `parse_ranges_optimal` which processes positions
+one-by-one using `bt_find_insert` for match collection. Long matches (≥
+`target_length`) are accepted immediately (bypassing the DP), preventing
+catastrophic ratio loss on highly compressible data. Short matches accumulate in
+chunks of up to `OPT_CHUNK_SIZE=256` positions, then `flush_chunk` runs a
+forward DP with cost model `match_cost_bits = SEQ_OVERHEAD(16) +
+offset_code_bits + match_length_extra_bits`. Added `match_length_extra_bits`
+helper. All four BT strategies now dispatch to `parse_ranges_optimal`. Design
+doc at `docs/steps/step-6-design.md`.
+
+**Design decisions**:
+- `target_length` early-accept is essential: without it, the DP clips all
+  matches to 256 bytes, destroying ratio on compressible data with long repeats.
+- All levels 16-19 share the same DP; differences are only in `search_depth`
+  and `min_match` parameters (higher = better ratio, slower speed).
+- Cost model uses integer approximation (bits), not fractional-bit costs.
+  btultra/btultra2 refinements (fractional costs, re-evaluation) are not
+  implemented; all three use the same DP with different parameters.
 
 **Goal**: Implement cost-based optimal parsing for levels 16-19 (`btopt`,
 `btultra`, `btultra2`), using dynamic programming to find the globally optimal
