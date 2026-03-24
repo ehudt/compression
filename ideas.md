@@ -103,6 +103,20 @@ These patterns emerged from the results tracked in `results.tsv`:
 - **Block-level RLE matters.** Emitting RLE blocks for single-byte content
   improved all_zeros compress by ~35% and decompress from ~678 MiB/s to
   ~12 GiB/s (18x).
+- **DFast-to-Greedy at shallow depth is too blunt.** On the current
+  `fac345b` branch, changing levels `3-4` from `DFast` to `Greedy` while
+  keeping `search_log=1` crushed the weighted synthetic ratio
+  (`0.4163 -> 0.2294`) and even improved weighted compress
+  (`1371.7 -> 1443.1 MB/s`), but Silesia level-3/4 compression throughput
+  roughly halved and decompression fell by ~30%. This branch's poor weighted
+  ratio is partly a parser-quality problem, but replacing DFast wholesale is
+  not within budget; future DFast work should borrow selective parse-quality
+  ideas without changing the strategy family outright.
+- **Backward match extension was below the gate here.** Extending emitted
+  matches backward in the non-optimal parsers only moved weighted ratio from
+  `0.4163` to `0.4151` and weighted compress from `1371.7` to `1377.9 MB/s`.
+  That is too small on this branch; improving DFast ratio likely needs bigger
+  changes than post-match anchor adjustment.
 
 ## Remove a whole compress-side pass at level 3
 
