@@ -17,6 +17,8 @@ Never optimize one while silently breaking the other, and never keep a change th
 Read these files before changing code:
 
 - `README.md` for the intended development loop and profiling commands
+- `docs/benchmarking.md` for benchmark modes, Silesia usage, and where to find baseline context
+- `docs/level-subsystem-baselines.md` for the current subsystem-level tradeoff expectations and reference comparisons
 - `benches/compression.rs` for the fast benchmark cases and full sweep mode
 - `tests/acceptance.rs` for the interop contract with the system `zstd`
 - `tests/integration.rs` for round-trip and sanity expectations
@@ -128,6 +130,24 @@ If Silesia does not confirm >= 2%, **discard** — the weighted benchmark was a 
 - A throughput win is valuable only if compressed size does not materially worsen on compressible inputs.
 - Regressing `random/1` badly is usually a red flag, because it exercises the near-incompressible path.
 - Simpler code wins ties.
+
+### Level-specific validation
+
+Keep the weighted benchmark and acceptance tests as the global gate. For work
+aimed at a specific subsystem, also run targeted per-level checks so the result
+can be attributed to the intended levels:
+
+- `Fast`: benchmark at least levels `1` and `2`
+- `DFast`: benchmark at least levels `3` and `4`
+- `Greedy`: benchmark level `5`
+- `Lazy` / `Lazy2`: benchmark at least levels `6`, `8`, and `12`
+- `BtLazy2`: benchmark at least levels `13` and `15`
+- `Optimal BT`: benchmark at least levels `16`, `18`, and `19`
+
+Use these targeted runs to decide whether a local change matches the expected
+tradeoff for that subsystem. The actual subsystem expectations live in
+`docs/level-subsystem-baselines.md`; do not rely on the weighted benchmark
+alone when a change is intentionally level-specific.
 
 ## Profiling Loop
 

@@ -67,6 +67,10 @@ cargo run --release --example silesia_bench -- \
   --min-bench-ms 1000
 ```
 
+For subsystem-level tradeoff context based on the current Silesia baseline, see
+`docs/level-subsystem-baselines.md`. The current generated comparison table
+lives in `docs/benchmarks/silesia-comparison.md`.
+
 ---
 
 ## Profiling workflow
