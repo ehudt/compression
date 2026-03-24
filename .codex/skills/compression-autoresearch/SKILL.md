@@ -5,12 +5,14 @@ description: Use when the goal is autonomous research on this repo's compression
 
 # Compression Autoresearch
 
-Run an autonomous experiment loop for this repository's Rust zstd implementation. The research target is the two-way tradeoff that matters here:
+Run an autonomous experiment loop for this repository's Rust zstd implementation. The research target is the ratio/throughput tradeoff that matters here:
 
 - Better compression ratio
 - Better throughput
 
-Never optimize one while silently breaking the other, and never keep a change that compromises frame correctness or interoperability.
+Never accept an unbudgeted tradeoff. Allowed regressions depend on the target
+subsystem and must match `docs/level-subsystem-baselines.md`. Never keep a
+change that compromises frame correctness or interoperability.
 
 ## Repo-Specific Scope
 
@@ -81,23 +83,38 @@ grep -A5 "\\[weighted-benchmark\\]" "$LOG_DIR/bench.log"
 tail -n 40 "$LOG_DIR/acceptance.log"
 ```
 
-## Acceptance Criteria — Two-Gate System
+## Acceptance Criteria — Default Flow and Validation Gates
 
 Think BIG. Do not keep micro-optimizations. The goal is meaningful algorithmic
 wins, not shuffling code for a 0.5% blip.
 
 All comparisons are against the **original baseline** established in setup, never against intermediate stacked states.
 
-### Gate 1: Weighted benchmark (fast iteration signal)
+### Gate 1: Fast Signal
 
-A change is **promising enough to validate** only if ALL of these are true:
+For repo-wide work, the weighted benchmark is the primary fast gate. For
+intentionally level-specific work, targeted per-level benchmarks are the
+primary fast gate, and the weighted benchmark is used to measure repo-wide
+spillover.
+
+Repo-wide changes are **promising enough to validate** only if ALL of these are
+true:
 
 - `cargo bench --bench weighted` completes successfully
 - `cargo test --test acceptance -- --nocapture` passes (or skips only because `zstd` is unavailable)
 - **At least one** composite score improves by **>= 3%**
 - **No** composite score regresses by **> 1%**
 
-If improvement is < 3% on every metric, **discard immediately** — do not run Silesia. Go back to the drawing board and try a bigger idea. Exception: if improvement is 1-3%, enter the **stacking phase** (see below).
+For intentionally level-specific work, use this gate as the default fast signal,
+not as an absolute veto. Judge the change first against targeted per-level
+benchmarks and `docs/level-subsystem-baselines.md`, then use the weighted
+benchmark to understand repo-wide spillover.
+
+If improvement is < 3% on every metric, **discard immediately** for repo-wide
+changes — do not run Silesia. Exception: if improvement is 1-3%, enter the
+**stacking phase** (see below). For intentionally level-specific changes, a
+flat weighted result may still be worth validating if the targeted per-level
+results clearly match the subsystem policy.
 
 If a change is ambiguous or borderline, run the full weighted sweep for a clearer signal:
 
@@ -105,31 +122,57 @@ If a change is ambiguous or borderline, run the full weighted sweep for a cleare
 ZSTD_RS_FULL_BENCHES=1 cargo bench --bench weighted > "$LOG_DIR/bench-full.log" 2>&1
 ```
 
-### Gate 2: Silesia benchmark (real-data confirmation)
+### Gate 2: Silesia benchmark (reference comparison by level)
 
-Only run after a change clears Gate 1:
+Run this after a change is promising under Gate 1 or under targeted per-level
+validation for the affected subsystem:
 
 ```bash
 cargo run --release --example silesia_bench -- \
   --download \
-  --implementation ours \
+  --implementation both \
+  --levels <affected-levels> \
   > "$LOG_DIR/silesia.log" 2>&1
 ```
 
 Keep the change only if:
 
 - The Silesia benchmark completes successfully
-- The **same metric** that triggered Gate 1 shows **>= 2% improvement** on the real Silesia corpus
-- No other metric regresses by > 1% on Silesia
+- The targeted levels move in the intended direction relative to reference
+  `zstd`, according to `docs/level-subsystem-baselines.md`
+- Any regressions outside the intended tradeoff budget are understood and
+  acceptable
 
-If Silesia does not confirm >= 2%, **discard** — the weighted benchmark was a false signal.
+If Silesia does not confirm the intended subsystem movement relative to
+reference, **discard**.
 
-### Tradeoff rules
+Typical commands:
+
+```bash
+# Repo-wide checkpoint
+cargo run --release --example silesia_bench -- \
+  --download \
+  --implementation both \
+  --levels 1,3,9,19 \
+  > "$LOG_DIR/silesia.log" 2>&1
+
+# Level-specific checkpoint
+cargo run --release --example silesia_bench -- \
+  --download \
+  --implementation both \
+  --levels 6,8,12 \
+  > "$LOG_DIR/silesia-lazy.log" 2>&1
+```
+
+### Generic heuristics
 
 - A ratio win on `repetitive` or `binary_structured` data is valuable only if throughput does not regress badly on the fast cases.
 - A throughput win is valuable only if compressed size does not materially worsen on compressible inputs.
 - Regressing `random/1` badly is usually a red flag, because it exercises the near-incompressible path.
 - Simpler code wins ties.
+
+These are secondary heuristics. Subsystem-specific policy in
+`docs/level-subsystem-baselines.md` takes precedence.
 
 ### Level-specific validation
 
@@ -146,8 +189,10 @@ can be attributed to the intended levels:
 
 Use these targeted runs to decide whether a local change matches the expected
 tradeoff for that subsystem. The actual subsystem expectations live in
-`docs/level-subsystem-baselines.md`; do not rely on the weighted benchmark
-alone when a change is intentionally level-specific.
+`docs/level-subsystem-baselines.md`. For intentionally level-specific work, do
+not rely on the weighted benchmark alone, and do not treat flat weighted
+results as a contradiction if the per-level movement is correct and the
+spillover is acceptable.
 
 ## Profiling Loop
 
@@ -189,16 +234,19 @@ Loop autonomously once setup is complete:
 1. Inspect the current commit and the last accepted result.
 2. Choose one concrete idea — think big, aim for algorithmic wins. Check `ideas.md` for promising directions.
 3. Edit only the code needed for that idea.
-4. Run the weighted benchmark and acceptance tests; save the logs.
-5. **Gate 1 check** (against the original baseline):
-   - Improvement >= 3% on at least one metric, no regression > 1% -> proceed to Gate 2.
-   - Improvement 1-3% -> enter the **stacking phase**.
-   - Improvement < 1% or any regression > 1% -> **discard immediately**.
-6. **Gate 2**: run the Silesia benchmark. If the improved metric does not confirm >= 2%, **discard**.
-7. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
-8. Log the outcome in `results.tsv`, including percentage changes.
-9. Keep the commit only if it cleared both gates; otherwise revert to the original baseline.
-10. Update `ideas.md` if you learned something useful for future agents (new directions, dead ends, refinements). Keep entries concise and actionable; do not duplicate `results.tsv` data.
+4. Run acceptance tests and the default fast benchmark; save the logs.
+5. If the change is intentionally level-specific, also run targeted per-level
+   benchmarks for the affected subsystem.
+6. **Gate 1 check**:
+   - For repo-wide work: improvement >= 3% on at least one metric, no regression > 1% -> proceed to Gate 2.
+   - For level-specific work: targeted per-level results match subsystem policy -> proceed to Gate 2, even if weighted results are flat.
+   - Improvement 1-3% -> enter the **stacking phase** when the direction is still promising.
+   - Discard immediately when neither the weighted results nor the targeted per-level results justify the change.
+7. **Gate 2**: run the Silesia benchmark with `--implementation both` and the affected levels. If the targeted levels do not move in the intended direction relative to reference, **discard**.
+8. If needed, run `cargo test` or the full benchmark sweep for extra confidence.
+9. Log the outcome in `results.tsv`, including percentage changes and which levels were checked.
+10. Keep the commit only if it cleared the appropriate gates for the kind of change you made; otherwise revert to the original baseline.
+11. Update `ideas.md` if you learned something useful for future agents (new directions, dead ends, refinements). Keep entries concise and actionable; do not duplicate `results.tsv` data.
 
 ### Stacking phase
 
