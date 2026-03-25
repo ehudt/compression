@@ -117,6 +117,13 @@ These patterns emerged from the results tracked in `results.tsv`:
   `0.4163` to `0.4151` and weighted compress from `1371.7` to `1377.9 MB/s`.
   That is too small on this branch; improving DFast ratio likely needs bigger
   changes than post-match anchor adjustment.
+- **Implicit-final-weight direct headers are below the gate on high-ratio levels.**
+  Reclaiming the direct Huffman header's omitted final weight slot was
+  interoperable and covered one more active symbol, but Silesia levels
+  `16/18/19` stayed flat at `3.101/3.161/3.167` ratio with effectively
+  unchanged compression speed. On this branch, the missing ratio is not coming
+  from the 128-vs-129 direct-header boundary alone; the full FSE-compressed
+  Huffman-weight path or a larger parser/coding change is still required.
 
 ## Remove a whole compress-side pass at level 3
 
