@@ -227,6 +227,18 @@ These patterns emerged from the results tracked in `results.tsv`:
   throughput by `1.8-5.2%` on levels `1/3/9`. Treat tiny literal-header
   cleanups as another weighted false-positive class on this branch unless a
   long-file benchmark shows visible per-file ratio movement.
+- **DFast still responds to combined table-access cleanup, but not to stale short-table shortcuts.**
+  On `93e9467`, replacing DFast's slice-to-array hash inputs with direct
+  word loads, reusing the loaded word for both hash selection and candidate
+  checks, and rewriting `skip_dfast()` with indexed loops improved weighted
+  compress from `1208.8` to `1236.0 MB/s` (`+2.25%`) with flat weighted ratio,
+  while confirmed Silesia compression improved from `198.7 -> 204.3 MB/s` at
+  level `3` and `180.4 -> 186.5 MB/s` at level `4` with flat ratio. A follow-up
+  that deferred short-hash updates until after the long-table probe missed
+  reached `206.7/186.8 MB/s`, but it regressed Silesia ratio to `2.119/2.207`.
+  Conclusion: DFast still has some speed headroom in redundant table-access and
+  iterator overhead, but keeping the short table fresh on long-match hits is
+  part of the current ratio floor.
 
 ## Remove a whole compress-side pass at level 3
 

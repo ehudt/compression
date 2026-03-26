@@ -165,14 +165,16 @@ impl MatchFinder {
 
     /// Hash a 4-byte sequence starting at `pos` in `data`.
     fn hash4(&self, data: &[u8], pos: usize) -> usize {
-        let bytes = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()) as u64;
-        let h = bytes.wrapping_mul(HASH_PRIME);
+        self.hash4_value(load_u32(data, pos))
+    }
+
+    fn hash4_value(&self, bytes: u32) -> usize {
+        let h = (bytes as u64).wrapping_mul(HASH_PRIME);
         (h >> (64 - self.cfg.hash_log)) as usize
     }
 
-    /// Hash an 8-byte sequence at `pos`; produces `chain_log` bits (for DFast long table).
-    fn hash8(&self, data: &[u8], pos: usize) -> usize {
-        let bytes = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
+    #[inline]
+    fn hash8_value(&self, bytes: u64) -> usize {
         (bytes.wrapping_mul(HASH_PRIME_64) >> (64 - self.cfg.chain_log)) as usize
     }
 
@@ -205,21 +207,25 @@ impl MatchFinder {
     /// The `chain` array is repurposed as the long hash table (indexed by hash value,
     /// not position). This is exclusive with the chain usage in Greedy/Lazy modes.
     fn lookup_dfast(&mut self, data: &[u8], pos: usize) -> Option<Match> {
-        let h_short = self.hash4(data, pos);
+        let needle4 = load_u32(data, pos);
+        let h_short = self.hash4_value(needle4);
 
         // Try the long (8-byte) hash table first.
         if pos + 8 <= data.len() {
-            let h_long = self.hash8(data, pos);
+            let needle8 = load_u64(data, pos);
+            let h_long = self.hash8_value(needle8);
             let prev_long = self.chain[h_long];
             self.chain[h_long] = pos as u32;
             let cand = prev_long as usize;
-            if prev_long != u32::MAX && cand < pos && pos - cand <= self.window_size
-                && load_u32(data, cand) == load_u32(data, pos)
+            if prev_long != u32::MAX
+                && cand < pos
+                && pos - cand <= self.window_size
+                && load_u32(data, cand) == needle4
             {
                 let max_len = (data.len() - pos).min(self.cfg.max_match);
                 let len = match_length(data, cand, pos, max_len);
                 if len >= self.cfg.min_match {
-                    // Also update short hash so it stays fresh.
+                    // Keep the short table fresh for later short-match probes.
                     self.hash_table[h_short] = pos as u32;
                     return Some(Match { offset: pos - cand, length: len });
                 }
@@ -233,7 +239,7 @@ impl MatchFinder {
         if prev == u32::MAX || cand >= pos || pos - cand > self.window_size {
             return None;
         }
-        if load_u32(data, cand) != load_u32(data, pos) {
+        if load_u32(data, cand) != needle4 {
             return None;
         }
         let max_len = (data.len() - pos).min(self.cfg.max_match);
@@ -459,29 +465,35 @@ impl MatchFinder {
         let limit = length.min(valid_len);
         let prefix_end = dense_prefix.min(limit);
 
-        for i in 0..prefix_end {
+        let mut i = 0usize;
+        while i < prefix_end {
             self.insert_dfast_position(data, pos + i);
+            i += 1;
         }
 
         let middle_end = length.saturating_sub(dense_suffix).min(limit);
         if prefix_end < middle_end {
-            let middle_start = prefix_end.next_multiple_of(sparse_step);
-            for i in (middle_start..middle_end).step_by(sparse_step) {
+            i = prefix_end.next_multiple_of(sparse_step);
+            while i < middle_end {
                 self.insert_dfast_position(data, pos + i);
+                i += sparse_step;
             }
         }
 
-        for i in middle_end.max(prefix_end)..limit {
+        i = middle_end.max(prefix_end);
+        while i < limit {
             self.insert_dfast_position(data, pos + i);
+            i += 1;
         }
     }
 
     #[inline]
     fn insert_dfast_position(&mut self, data: &[u8], pos: usize) {
-        let h_short = self.hash4(data, pos);
+        let bytes4 = load_u32(data, pos);
+        let h_short = self.hash4_value(bytes4);
         self.hash_table[h_short] = pos as u32;
         if pos + 8 <= data.len() {
-            let h_long = self.hash8(data, pos);
+            let h_long = self.hash8_value(load_u64(data, pos));
             self.chain[h_long] = pos as u32;
         }
     }
