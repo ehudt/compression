@@ -100,6 +100,14 @@ These patterns emerged from the results tracked in `results.tsv`:
   directly from output (instead of cloning history per block) improved Silesia
   decompress by ~3-5% across all levels and improved repetitive roundtrip by
   13-17%.
+- **Chunked overlapping match replay is a real decompression win.** On
+  `d7d7172`, replacing the decoder's per-byte back-reference loop with
+  chunked `Vec::extend_from_within()` copies plus a one-shot reserve kept
+  ratio flat and compression roughly flat, while Silesia decompression moved
+  from `1365.1 -> 1662.6 MB/s` at level `1`, `386.9 -> 473.9 MB/s` at level
+  `3`, `308.3 -> 381.8 MB/s` at level `9`, and `350.3 -> 460.3 MB/s` at
+  level `19`. Future decoder work should keep targeting byte-at-a-time replay
+  and realloc-heavy paths before micro-optimizing table reads.
 - **Block-level RLE matters.** Emitting RLE blocks for single-byte content
   improved all_zeros compress by ~35% and decompress from ~678 MiB/s to
   ~12 GiB/s (18x).

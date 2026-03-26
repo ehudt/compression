@@ -308,6 +308,12 @@ pub fn execute_sequences(
     literals: &[u8],
     output: &mut Vec<u8>,
 ) -> Result<()> {
+    let additional_output = literals
+        .len()
+        .checked_add(sequences.iter().map(|seq| seq.match_length).sum::<usize>())
+        .ok_or(ZstdError::CorruptData("decoded block size overflow"))?;
+    output.reserve(additional_output);
+
     let mut lit_pos = 0usize;
 
     for seq in sequences {
@@ -329,15 +335,7 @@ pub fn execute_sequences(
             return Err(ZstdError::CorruptData("offset exceeds available history"));
         }
 
-        // The back-reference may overlap with what we're currently writing (self-referential)
-        for i in 0..seq.match_length {
-            let back_pos = current_len + i;
-            let src_pos = back_pos
-                .checked_sub(seq.offset)
-                .ok_or(ZstdError::CorruptData("history reference out of bounds"))?;
-            let byte = output[src_pos];
-            output.push(byte);
-        }
+        copy_match(output, seq.offset, seq.match_length)?;
     }
 
     // Copy any trailing literals
@@ -345,6 +343,20 @@ pub fn execute_sequences(
         output.extend_from_slice(&literals[lit_pos..]);
     }
 
+    Ok(())
+}
+
+fn copy_match(output: &mut Vec<u8>, offset: usize, match_length: usize) -> Result<()> {
+    let mut remaining = match_length;
+    while remaining > 0 {
+        let current_len = output.len();
+        let src_start = current_len
+            .checked_sub(offset)
+            .ok_or(ZstdError::CorruptData("history reference out of bounds"))?;
+        let chunk_len = remaining.min(offset);
+        output.extend_from_within(src_start..src_start + chunk_len);
+        remaining -= chunk_len;
+    }
     Ok(())
 }
 
@@ -364,5 +376,19 @@ mod debug_tests {
         assert_eq!(seqs[0].literal_length, 12, "literal_length mismatch");
         assert_eq!(seqs[0].match_length, 1188, "match_length mismatch");
         assert_eq!(seqs[0].offset, 12, "offset mismatch");
+    }
+
+    #[test]
+    fn execute_sequences_handles_overlapping_matches() {
+        let sequences = [Sequence {
+            literal_length: 1,
+            match_length: 5,
+            offset: 1,
+        }];
+        let mut output = Vec::new();
+
+        execute_sequences(&sequences, b"a", &mut output).unwrap();
+
+        assert_eq!(output, b"aaaaaa");
     }
 }
