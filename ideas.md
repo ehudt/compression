@@ -188,6 +188,14 @@ These patterns emerged from the results tracked in `results.tsv`:
   unchanged compression speed. On this branch, the missing ratio is not coming
   from the 128-vs-129 direct-header boundary alone; the full FSE-compressed
   Huffman-weight path or a larger parser/coding change is still required.
+- **The same direct-header tweak still false-positives on weighted here.**
+  On `ad5bb47`, omitting the explicit final direct Huffman weight improved the
+  weighted composite compress score from `1067.9` to `1123.6 MB/s` (`+5.22%`)
+  with flat weighted ratio, but exact Silesia comparison on levels `1/3/9/19`
+  kept ratio pinned at `1.216/2.052/2.822/3.167` and regressed compression
+  throughput by `1.8-5.2%` on levels `1/3/9`. Treat tiny literal-header
+  cleanups as another weighted false-positive class on this branch unless a
+  long-file benchmark shows visible per-file ratio movement.
 
 ## Remove a whole compress-side pass at level 3
 
