@@ -268,6 +268,7 @@ These patterns emerged from the results tracked in `results.tsv`:
   itself; lean on repeated runs and Silesia confirmation.
 - Treat weighted-only wins as suspicious until Silesia confirms them; longer-file behavior matters more than short synthetic cases.
 - Prefer changes that reduce allocations or whole passes over tweaks like wider compare chunks or lookup micro-optimizations.
+- Retrying implicit-final direct Huffman headers without the full FSE-compressed-weight path is still below the gate. On `b8376e9`, allowing 129 active symbols via omitted final direct weights nudged Silesia ratio only from `1.216/2.121/2.822/3.167` to `1.219/2.122/2.827/3.172` on levels `1/3/9/19`, while compression slipped to `729.4/203.6/21.0/3.2 MB/s` from `748.5/203.9/20.7/3.3 MB/s` and decompression also dipped slightly. The +1-symbol direct-header extension alone does not unlock a visible win on this branch; future literal-header work should skip straight to full FSE-compressed weights or a larger block-level decision change.
 
 ## FSE-compressed Huffman weight encoding
 
