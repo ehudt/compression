@@ -129,6 +129,16 @@ These patterns emerged from the results tracked in `results.tsv`:
   compression speed on both levels. The problem is not just candidate choice at
   one position; the larger missed opportunity was the absence of matched-run
   reinsertion.
+- **DFast follow-ups need larger leverage than reinsertion tuning.** On
+  `59ed008`, making the long-hash reinsertion path sparser inside matched runs
+  reduced Silesia ratio from `2.052 -> 2.050` at level `3` and
+  `2.142 -> 2.130` at level `4` while also missing any meaningful compression
+  speed recovery. A second attempt that only checked the short-hash candidate
+  when a long-hash hit was still short left ratio effectively flat
+  (`2.052 -> 2.053` at level `3`, level `4` unchanged) but cost
+  `3-4%` compression throughput. The current DFast state seems constrained by
+  broader parse quality and reinsertion cost together; small local tweaks to
+  long-table density or conditional second-choice checks are below the bar.
 - **Backward match extension was below the gate here.** Extending emitted
   matches backward in the non-optimal parsers only moved weighted ratio from
   `0.4163` to `0.4151` and weighted compress from `1371.7` to `1377.9 MB/s`.
