@@ -167,6 +167,20 @@ These patterns emerged from the results tracked in `results.tsv`:
   `skip_dfast()` was worse: Silesia compress fell to `196.9/177.4 MB/s` with
   flat ratio. Conclusion: on this branch, the DFast speed debt is not coming
   from one obviously redundant 8-byte check or reinsertion load.
+- **Selective DFast lookahead buys too little ratio for its speed cost.** On
+  `d6ca7d5`, probing `pos+1` for short greedy DFast matches improved Silesia
+  ratio from `2.052 -> 2.098` at level `3` and `2.142 -> 2.185` at level `4`,
+  but compression fell from `209.6 -> 190.2 MB/s` and `189.5 -> 169.9 MB/s`.
+  That is not a better trade than the matched-run reinsertion keep; future
+  DFast ratio work needs a larger parser-quality gain than a one-byte lazy
+  check can deliver.
+- **DFast hash helper cleanup is still a borderline false positive.** Also on
+  `d6ca7d5`, replacing the slice-to-array conversions in `hash4()` / `hash8()`
+  with unaligned load helpers improved one Silesia run to `213.9/192.6 MB/s`
+  at levels `3/4`, but the confirmation rerun came back at `211.9/185.5 MB/s`
+  with flat ratio. The profile still shows hash helper overhead inside
+  `skip_dfast()`, but the isolated cleanup remains too small and too noisy to
+  clear the subsystem gate on this branch.
 - **Making DFast miss skipping more aggressive pushes it toward the wrong tradeoff.**
   Also on `c63e52c`, raising DFast `search_log` from `1` to `2` improved ratio
   sharply on Silesia (`2.052 -> 2.285` at level `3`, `2.142 -> 2.359` at level
