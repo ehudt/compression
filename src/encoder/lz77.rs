@@ -485,6 +485,29 @@ impl MatchFinder {
             self.chain[h_long] = pos as u32;
         }
     }
+
+    /// Seed a small number of skipped miss positions so anchor-relative stepping
+    /// does not completely blind the next DFast probe after long literal runs.
+    #[inline]
+    fn skip_dfast_miss_positions(&mut self, data: &[u8], pos: usize, step: usize) {
+        if step <= 1 {
+            return;
+        }
+        let Some(valid_len) = data.len().checked_sub(pos + 4).map(|tail| tail + 1) else {
+            return;
+        };
+        let limit = step.min(valid_len);
+        if limit <= 1 {
+            return;
+        }
+
+        let last = limit - 1;
+        self.insert_dfast_position(data, pos + last);
+
+        if limit >= 8 {
+            self.insert_dfast_position(data, pos + (last / 2));
+        }
+    }
 }
 
 #[inline]
@@ -764,6 +787,7 @@ fn parse_ranges_dfast(
             }
             None => {
                 let step = 1 + ((pos - lit_start) >> search_log);
+                finder.skip_dfast_miss_positions(data, pos, step);
                 pos += step;
             }
         }

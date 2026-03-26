@@ -198,6 +198,15 @@ These patterns emerged from the results tracked in `results.tsv`:
   strategy shift, not a balanced DFast recovery; future DFast work should aim
   to recover the matched-run reinsertion overhead without increasing overall
   parse aggressiveness.
+- **Sparse DFast miss seeding is a real ratio lever.** On `ca71927`, seeding a
+  few skipped miss positions into the DFast tables before anchor-relative jumps
+  improved Silesia ratio from `2.052 -> 2.121` at level `3` and
+  `2.142 -> 2.214` at level `4`, with compression changing from
+  `208.6 -> 200.0 MB/s` and `184.1 -> 182.2 MB/s` on the confirmation rerun.
+  A heavier variant that always seeded both the midpoint and landing position
+  pushed ratio slightly higher (`2.128/2.220`) but cost more speed
+  (`197.7/180.1 MB/s`). The better trade on this branch was to always seed the
+  landing position and only add the midpoint when the jump reached 8 bytes.
 - **Backward match extension was below the gate here.** Extending emitted
   matches backward in the non-optimal parsers only moved weighted ratio from
   `0.4163` to `0.4151` and weighted compress from `1371.7` to `1377.9 MB/s`.
