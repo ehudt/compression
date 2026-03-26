@@ -139,6 +139,17 @@ These patterns emerged from the results tracked in `results.tsv`:
   `3-4%` compression throughput. The current DFast state seems constrained by
   broader parse quality and reinsertion cost together; small local tweaks to
   long-table density or conditional second-choice checks are below the bar.
+- **Cheaper DFast hashing still missed the subsystem gate.** On `ddfeb6f`,
+  replacing the slice-to-array conversions inside `hash4()` / `hash8()` with
+  unaligned loads improved the weighted benchmark from `1123.6` to
+  `1154.2 MB/s` (`+2.72%`) with flat ratio, and the first Silesia run improved
+  level-3/4 compression from `208.7/190.2` to `213.0/193.5 MB/s`. But the
+  required rerun came back at `214.3/190.1 MB/s`, which confirmed level `3`
+  only and left level `4` flat. A more aggressive variant that derived both
+  DFast hashes from one 8-byte load regressed level-4 compression to
+  `184.7 MB/s`. Conclusion: the current DFast speed debt is larger than the
+  hash helper overhead alone; weighted overstates this win and future recovery
+  work needs a bigger structural cut than cheaper fingerprint loading.
 - **Backward match extension was below the gate here.** Extending emitted
   matches backward in the non-optimal parsers only moved weighted ratio from
   `0.4163` to `0.4151` and weighted compress from `1371.7` to `1377.9 MB/s`.
