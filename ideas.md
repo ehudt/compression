@@ -267,6 +267,27 @@ These patterns emerged from the results tracked in `results.tsv`:
   DFast maintenance debt is not solved by refactoring the hash-load plumbing
   alone; future work should look for fewer parser probes or higher-yield match
   selection changes rather than another hash/reinsertion helper cleanup.
+- **DFast long-hash validation still does not pay for itself on this head.**
+  On `74e9910`, validating long-table hits with full 8-byte equality and
+  extending matches from byte `8` slipped Silesia ratio from `2.121 -> 2.119`
+  at level `3` and `2.214 -> 2.213` at level `4`, while compression stayed
+  essentially flat at `204.4/186.3 MB/s` versus the `204.7/186.5 MB/s`
+  baseline. Conclusion: even after the later DFast cleanups, rechecking the
+  first long-match word is still below the gate.
+- **Weakening the kept DFast miss-seeding heuristic is not a speed-recovery path here.**
+  Also on `74e9910`, raising the extra midpoint-seed threshold from skipped
+  runs of `8+` bytes to `16+` nudged level-3 ratio up slightly
+  (`2.121 -> 2.127`) but cut compression from `204.7/186.5 MB/s` to
+  `201.9/182.4 MB/s` on levels `3/4`. That says the current miss-seeding cost
+  is not dominated by midpoint insertion on moderate jumps; changing the
+  threshold just moved the tradeoff in the wrong direction.
+- **Behavior-preserving arithmetic cleanup in DFast reinsertion is below the gate.**
+  Still on `74e9910`, removing `checked_sub`/`Option::map`/`next_multiple_of`
+  from `skip_dfast()` and `skip_dfast_miss_positions()` kept Silesia ratio flat
+  but only moved compression from `204.7/186.5` to `204.5/186.4 MB/s`, while
+  level-3 decompression slipped from `461.2` to `456.6 MB/s`. The `skip_dfast`
+  hotspot reflects real reinsertion work, not just helper arithmetic; future
+  DFast speed recovery still needs a larger structural cut.
 
 ## Remove a whole compress-side pass at level 3
 
