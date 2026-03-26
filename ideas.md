@@ -150,6 +150,32 @@ These patterns emerged from the results tracked in `results.tsv`:
   `184.7 MB/s`. Conclusion: the current DFast speed debt is larger than the
   hash helper overhead alone; weighted overstates this win and future recovery
   work needs a bigger structural cut than cheaper fingerprint loading.
+- **The current DFast hot path is split between lookup and matched-run reinsertion.**
+  A CPU profile on `dickens` at level `3` (`c63e52c`) put about `46%` of
+  samples in `MatchFinder::lookup_dfast` and another `~15%` in
+  `skip_dfast -> insert_dfast_position -> hash4`, with sequence bit writing a
+  separate `~23%`. That profile says the parser is still the main subsystem
+  cost center, but it also says pure hash-helper cleanup is only shaving part
+  of the debt.
+- **DFast-specific 8-byte cleanup attempts stayed below the bar here.** On
+  `c63e52c`, validating long-table candidates with 8-byte equality and
+  extending matches from byte `8` nudged Silesia compression from
+  `207.1 -> 210.8 MB/s` at level `3` and `188.7 -> 189.4 MB/s` at level `4`,
+  but it also slipped ratio from `2.052 -> 2.051` and `2.142 -> 2.138`, with
+  weighted compress falling slightly (`1113.5 -> 1109.2 MB/s`). A second
+  attempt to derive both reinsertion hashes from one 8-byte load inside
+  `skip_dfast()` was worse: Silesia compress fell to `196.9/177.4 MB/s` with
+  flat ratio. Conclusion: on this branch, the DFast speed debt is not coming
+  from one obviously redundant 8-byte check or reinsertion load.
+- **Making DFast miss skipping more aggressive pushes it toward the wrong tradeoff.**
+  Also on `c63e52c`, raising DFast `search_log` from `1` to `2` improved ratio
+  sharply on Silesia (`2.052 -> 2.285` at level `3`, `2.142 -> 2.359` at level
+  `4`) and improved weighted ratio/compress, but it cratered Silesia
+  compression (`207.1 -> 169.1 MB/s`, `188.7 -> 154.9 MB/s`) and cut Silesia
+  decompression by roughly `11-13%`. This behaves like a broader parser
+  strategy shift, not a balanced DFast recovery; future DFast work should aim
+  to recover the matched-run reinsertion overhead without increasing overall
+  parse aggressiveness.
 - **Backward match extension was below the gate here.** Extending emitted
   matches backward in the non-optimal parsers only moved weighted ratio from
   `0.4163` to `0.4151` and weighted compress from `1371.7` to `1377.9 MB/s`.
