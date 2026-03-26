@@ -227,6 +227,13 @@ These patterns emerged from the results tracked in `results.tsv`:
   throughput by `1.8-5.2%` on levels `1/3/9`. Treat tiny literal-header
   cleanups as another weighted false-positive class on this branch unless a
   long-file benchmark shows visible per-file ratio movement.
+- **One more search-depth notch is below the gate for Optimal BT.** On
+  `af0f8cb`, raising the binary-tree search depth by one notch for levels
+  `16-19` moved Silesia ratio only from `3.101 -> 3.102`, `3.161 -> 3.162`,
+  and `3.167 -> 3.168`, with level-19 compression slipping from `3.3` to
+  `3.2 MB/s`. The ratio change is too small to be visible on a per-file basis,
+  so future high-level ratio work should target better parse scoring or literal
+  coding completeness, not a uniform depth increase.
 - **DFast still responds to combined table-access cleanup, but not to stale short-table shortcuts.**
   On `93e9467`, replacing DFast's slice-to-array hash inputs with direct
   word loads, reusing the loaded word for both hash selection and candidate
