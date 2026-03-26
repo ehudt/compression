@@ -239,6 +239,16 @@ These patterns emerged from the results tracked in `results.tsv`:
   Conclusion: DFast still has some speed headroom in redundant table-access and
   iterator overhead, but keeping the short table fresh on long-match hits is
   part of the current ratio floor.
+- **Making sparse matched-run reinsertion less short-table-heavy still loses ratio.**
+  On `df33081`, two follow-ups tried to cut DFast reinsertion work inside the
+  sparse middle of matched runs: one refreshed only the long table there, and
+  the other kept short-table updates only at the sparse boundaries. Both nudged
+  level-3 compression up (`203.6 -> 207.3 MB/s` and `203.6 -> 205.3 MB/s`),
+  but both also regressed Silesia ratio on levels `3/4` (`2.121 -> 2.117/2.119`
+  and `2.214 -> 2.212`). Conclusion: on this branch, the sparse middle still
+  needs short-table freshness often enough that selectively dropping those
+  updates is not a balanced DFast trade. Future DFast speed work should target
+  cheaper dual-table maintenance, not fewer short-table writes.
 
 ## Remove a whole compress-side pass at level 3
 
