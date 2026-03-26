@@ -439,6 +439,52 @@ impl MatchFinder {
             self.insert(data, pos + i);
         }
     }
+
+    /// DFast-specific reinsertion for matched runs.
+    ///
+    /// DFast stores its secondary structure as an 8-byte hash table rather than a
+    /// per-position chain, so the generic `skip()` logic cannot be reused here.
+    pub fn skip_dfast(&mut self, data: &[u8], pos: usize, length: usize) {
+        let sparse_step = match length {
+            0..=24 => 1,
+            25..=96 => 2,
+            97..=256 => 4,
+            _ => 8,
+        };
+        let dense_prefix = 8usize;
+        let dense_suffix = 8usize;
+        let Some(valid_len) = data.len().checked_sub(pos + 4).map(|tail| tail + 1) else {
+            return;
+        };
+        let limit = length.min(valid_len);
+        let prefix_end = dense_prefix.min(limit);
+
+        for i in 0..prefix_end {
+            self.insert_dfast_position(data, pos + i);
+        }
+
+        let middle_end = length.saturating_sub(dense_suffix).min(limit);
+        if prefix_end < middle_end {
+            let middle_start = prefix_end.next_multiple_of(sparse_step);
+            for i in (middle_start..middle_end).step_by(sparse_step) {
+                self.insert_dfast_position(data, pos + i);
+            }
+        }
+
+        for i in middle_end.max(prefix_end)..limit {
+            self.insert_dfast_position(data, pos + i);
+        }
+    }
+
+    #[inline]
+    fn insert_dfast_position(&mut self, data: &[u8], pos: usize) {
+        let h_short = self.hash4(data, pos);
+        self.hash_table[h_short] = pos as u32;
+        if pos + 8 <= data.len() {
+            let h_long = self.hash8(data, pos);
+            self.chain[h_long] = pos as u32;
+        }
+    }
 }
 
 #[inline]
@@ -712,6 +758,7 @@ fn parse_ranges_dfast(
                     sink.literals(lit_start, pos);
                 }
                 sink.matched(pos, m.offset, m.length);
+                finder.skip_dfast(data, pos + 1, m.length - 1);
                 pos += m.length;
                 lit_start = pos;
             }

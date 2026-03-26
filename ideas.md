@@ -112,6 +112,23 @@ These patterns emerged from the results tracked in `results.tsv`:
   ratio is partly a parser-quality problem, but replacing DFast wholesale is
   not within budget; future DFast work should borrow selective parse-quality
   ideas without changing the strategy family outright.
+- **DFast matched-run reinsertion buys real ratio at a real speed cost.** On
+  `18338fb`, DFast was not reinserting any matched positions because the
+  generic `skip()` helper assumes a per-position chain layout that DFast does
+  not use. Adding a DFast-specific sparse reinsertion path for the matched run
+  improved Silesia ratio from `1.872 -> 2.052` at level `3` and
+  `1.944 -> 2.142` at level `4`, but it also dropped Silesia compression speed
+  by `12-15%` and decompression by about `5%`, with weighted compress falling
+  `16%`. This is a legitimate ratio-first lever for DFast, not a false
+  positive, but it is expensive enough that follow-up work should focus on
+  recovering the speed loss rather than adding even more parse work.
+- **Comparing both DFast candidates at every position is below the bar.** A
+  local change that evaluated both the 8-byte long-hash hit and the 4-byte
+  short-hash hit before choosing a match nudged Silesia level-3 ratio from
+  `1.872` to `1.880`, left level `4` flat at `1.944`, and cost about `8%`
+  compression speed on both levels. The problem is not just candidate choice at
+  one position; the larger missed opportunity was the absence of matched-run
+  reinsertion.
 - **Backward match extension was below the gate here.** Extending emitted
   matches backward in the non-optimal parsers only moved weighted ratio from
   `0.4163` to `0.4151` and weighted compress from `1371.7` to `1377.9 MB/s`.
