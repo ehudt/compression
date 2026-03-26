@@ -249,6 +249,24 @@ These patterns emerged from the results tracked in `results.tsv`:
   needs short-table freshness often enough that selectively dropping those
   updates is not a balanced DFast trade. Future DFast speed work should target
   cheaper dual-table maintenance, not fewer short-table writes.
+- **Current DFast cost is still mostly parser lookup, not collector copy overhead.**
+  A fresh profile on `2ff55ce` for `dickens` at level `3` showed
+  `lookup_dfast` at `45.49%`, `skip_dfast` at `13.68%`,
+  `skip_dfast_miss_positions` at `1.34%`, sequence encoding at `22.73%`, and
+  collector-side sink work split between sequence pushes (`5.79%`) and literal
+  slice indexing (`3.81%`). A collector retry that preallocated the full
+  literal buffer and copied literal runs directly only moved Silesia
+  compression from `203.8 -> 205.1 MB/s` at level `3` while regressing level
+  `4` from `185.4 -> 176.4 MB/s`. Conclusion: the visible collector overhead is
+  not the main DFast bottleneck on this head; parser-side work still dominates.
+- **Single-load DFast table-maintenance retries regressed on this head.**
+  Also on `2ff55ce`, reusing one 8-byte load to derive both short and long
+  hashes and splitting reinsertion into long-valid vs short-only loops kept
+  ratio flat but dropped Silesia compression from `203.8 -> 198.9 MB/s` at
+  level `3` and `185.4 -> 182.3 MB/s` at level `4`. Conclusion: this branch's
+  DFast maintenance debt is not solved by refactoring the hash-load plumbing
+  alone; future work should look for fewer parser probes or higher-yield match
+  selection changes rather than another hash/reinsertion helper cleanup.
 
 ## Remove a whole compress-side pass at level 3
 
