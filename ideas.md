@@ -729,3 +729,14 @@ bug. Silesia now round-trips cleanly at all tested levels.
   still too small to survive the real-corpus bar; future Lazy-family speed
   work should look for fewer probes or fewer insertions, not just a tighter
   implementation of the same per-position work.
+- **Lazy-family miss skipping is still too blunt even when softened.**
+  On `2651e8a`, adding a modest anchor-relative skip on the `m0 == None` path
+  only after the literal run had already grown past 8 bytes recovered visible
+  compression speed on the measured levels (`62.2 -> 65.7 MB/s` at level `6`,
+  `23.8 -> 24.9 MB/s` at level `8`), but it immediately gave back ratio:
+  `2.612 -> 2.584` at level `6` and `2.824 -> 2.812` at level `8`. This is
+  the same basic failure mode as the earlier target-length-bounded chain-walk
+  shortcut: the current Lazy parser still finds materially better matches in
+  those “boring” miss stretches. Future Lazy-family speed work should avoid
+  miss-path skipping heuristics unless they preserve more table/search state
+  than simply jumping ahead.
