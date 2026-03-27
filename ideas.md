@@ -611,3 +611,28 @@ bug. Silesia now round-trips cleanly at all tested levels.
   plumbing cost more than the removed iterator walk here; future decoder work
   should stay focused on bitreader/state-transition overhead or larger copy-path
   cuts, not bookkeeping that only moves one pre-pass.
+- **DFast small-offset reinsertion pruning is not a safe speed-recovery shortcut on this head.**
+  On `f6eb61d`, making `skip_dfast()` sparser only for long, very small-offset
+  matches looked like a targeted way to cut the matched-run maintenance that
+  profiling still shows at ~14% of level-3 samples, but exact Silesia kept
+  ratio flat at `2.121/2.214` and dropped compression from `187.1 -> 181.5
+  MB/s` at level `4` while leaving level `3` effectively unchanged
+  (`202.3 -> 202.5 MB/s`). Even when the heuristic only touches the most
+  redundant-looking runs, this branch still needs the existing reinsertion
+  density to hold its DFast floor.
+- **No-repeat offset-code specialization is below the gate for DFast.**
+  Also on `f6eb61d`, splitting the sequence collector so non-repeat-offset
+  levels could bypass the repeat-offset update machinery seemed plausible after
+  a profile put `offset_code` at about `6%` of level-3 samples, but Silesia
+  ratio stayed flat and compression slipped from `202.3 -> 200.0 MB/s` at
+  level `3` with level `4` only reaching `186.4 MB/s` versus the `187.1 MB/s`
+  baseline. The collector-side offset-code work is measurable, but not large
+  enough in isolation to recover the DFast speed debt.
+- **Pre-reserving sequence/FSE output buffers is also below the DFast gate.**
+  Still on `f6eb61d`, reserving the sequence-section output `Vec` and the FSE
+  `BitWriter` buffer up front improved Silesia compression only from
+  `202.3 -> 205.9 MB/s` at level `3` while regressing level `4` from
+  `187.1 -> 185.0 MB/s`, with ratio unchanged and decompression slightly down.
+  The profile's realloc noise is real but too small and uneven to clear the
+  subsystem gate; future DFast work should keep aiming at parser probe count or
+  matched-run maintenance structure, not local buffer growth.
