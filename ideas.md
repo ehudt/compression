@@ -198,6 +198,7 @@ These patterns emerged from the results tracked in `results.tsv`:
   strategy shift, not a balanced DFast recovery; future DFast work should aim
   to recover the matched-run reinsertion overhead without increasing overall
   parse aggressiveness.
+- **Parser-side repeat-offset probing is a real ratio lever, but too expensive in the current Greedy/Lazy matcher.** On `60e9103`, letting Greedy/Lazy compare explicit repeat-offset matches against the hash-chain result improved Silesia ratio from `2.588 -> 2.633` at level `5`, `2.612 -> 2.633` at level `6`, `2.824 -> 2.843` at level `8`, and `2.987 -> 3.002` at level `12`, but compression fell by `8.8-11.7%` on levels `5/6/8`. A narrower retry that only probed zero-literal repeat chains recovered some speed (`60.3/60.3/23.7/6.2 MB/s` vs baseline `64.3/64.3/24.9/6.2`) but still missed the subsystem budget. Conclusion: the missing ratio is partly in repcode-aware parse choices, but probing repcodes opportunistically at parse time is too costly unless the matcher can surface them much more cheaply than an extra per-position compare-and-extend path.
 - **Sparse DFast miss seeding is a real ratio lever.** On `ca71927`, seeding a
   few skipped miss positions into the DFast tables before anchor-relative jumps
   improved Silesia ratio from `2.052 -> 2.121` at level `3` and
