@@ -518,3 +518,14 @@ bug. Silesia now round-trips cleanly at all tested levels.
   `0.5-4.1%`. That is still a sub-visible literal-header gain, not a real
   ratio recovery. Future literal work should skip straight to full
   FSE-compressed Huffman weights or a larger block/literal decision change.
+- **Strategy-gated larger Optimal BT DP windows still need a faster evaluation loop.**
+  On `5f2fbd2`, a local retry that kept `BtOpt` at a 512-position DP chunk but
+  widened `BtUltra` to `768` and `BtUltra2` to `1024` improved the weighted
+  sanity benchmark slightly (`1223.9 -> 1241.2 MB/s` compress,
+  `4912.5 -> 4942.4 MB/s` decompress) with flat weighted ratio, but the
+  high-level Silesia reruns were too slow to complete within the experiment
+  budget. Since the patch specifically targets levels `16-19`, weighted alone
+  is not trustworthy enough to keep. Future work here should first build a
+  faster high-level measurement loop (for example a smaller-file or
+  reduced-corpus confirmation step) before retrying larger DP horizons beyond
+  the kept global `512`.
