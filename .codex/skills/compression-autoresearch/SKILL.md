@@ -41,7 +41,11 @@ measurement or missing coverage.
    run starts. If run 10 times in a row, the result should be 10 commits
    stacked on the starting HEAD.
 2. Confirm the worktree is clean enough to experiment safely.
-3. Use the tracked `results.tsv` file as the experiment log.
+3. Use the tracked `results.tsv` and `campaigns.tsv` files as the experiment
+   log. Before a run, ensure they are in the current schema:
+   ```bash
+   python3 scripts/autoresearch_log.py ensure-files --results results.tsv --campaigns campaigns.tsv
+   ```
 4. Create a unique temp log directory outside the repo:
    ```bash
    LOG_DIR=$(mktemp -d /tmp/compression-autoresearch-XXXXXX)
@@ -54,7 +58,8 @@ measurement or missing coverage.
    This populates `~/silesia/` which `tests/integration.rs` depends on at
    compile time via `include_bytes!`.
 6. Read `docs/level-subsystem-baselines.md` and `ideas.md`.
-7. Establish the baseline before making any code changes (see Baseline).
+7. Establish the baseline for the current research campaign before making any
+   code changes (see Baseline).
 
 ## Choosing a target
 
@@ -101,9 +106,24 @@ without collapsing the other axes.
 4. Pick one concrete idea. Think big — aim for algorithmic wins, not
    micro-optimizations.
 
+## Campaigns and baselines
+
+A research **campaign** is a run against one chosen target area on one branch
+head. A campaign can contain multiple experiments.
+
+Reuse the campaign baseline while all of these stay true:
+
+- the checked-out branch head still descends from the original baseline commit
+- the target subsystem or cross-cutting focus has not changed
+- the benchmark levels under evaluation are the same
+
+Start a new campaign baseline when the branch moves in a way that invalidates
+comparison, or when you pivot to a meaningfully different target.
+
 ## Baseline
 
-Establish the baseline on the first iteration, before any code changes.
+Establish the baseline once per campaign, before any code changes for that
+campaign.
 
 ### Correctness baseline
 
@@ -131,8 +151,9 @@ cargo run --release --example silesia_bench -- \
   > "$LOG_DIR/silesia-baseline.log" 2>&1
 ```
 
-Record the baseline numbers in `results.tsv`. All later comparisons are against
-this baseline.
+Record the baseline numbers in `results.tsv` and add or update the matching row
+in `campaigns.tsv`. All later comparisons in the same campaign are against this
+baseline.
 
 ### Weighted sanity baseline
 
@@ -150,8 +171,10 @@ Record the weighted scores for later comparison.
 
 Loop autonomously once setup is complete:
 
-1. **Pick a target.** Review baselines and `ideas.md`. Choose one concrete idea
-   for one target (subsystem or cross-cutting).
+1. **Pick a campaign target.** Review baselines and `ideas.md`. Choose one
+   concrete target (subsystem or cross-cutting) and stay with it for multiple
+   experiments until you either find a keep, hit a clear dead end, or profiling
+   says the target was wrong.
 
 2. **Edit code.** Only the code needed for that idea.
 
@@ -182,14 +205,18 @@ Loop autonomously once setup is complete:
    investigate before keeping. This likely indicates overfitting or a
    measurement issue.
 
-7. **Log the outcome** in `results.tsv`.
+7. **Log the outcome** in `results.tsv`. Fill in the campaign metadata columns:
+   `campaign_id`, `target`, `axis`, `levels`, `rerun_status`,
+   `evidence_status`, and `per_file_notes`.
 
 8. **Keep or discard.** If the change clears the criteria, keep the commit.
    Otherwise, revert to the baseline.
 
 9. **Update `ideas.md`** if you learned something useful for future agents.
 
-10. **Repeat.** Go back to step 1.
+10. **Repeat.** Stay in the current campaign while the target still looks
+    promising. Pivot only when repeated evidence says the current lane is
+    saturated.
 
 ## Keep/discard criteria
 
@@ -240,6 +267,17 @@ gate:
 - Weighted improving while Silesia is flat → do not trust the weighted signal.
 - Weighted regressing > 5% while Silesia improves → investigate before keeping.
 - Weighted flat while Silesia improves → normal, proceed.
+
+### Pivot rules
+
+Do not keep probing a stale local neighborhood forever.
+
+- After 2-3 discards in the same narrow idea family, either profile again or
+  pivot to a different lever.
+- If `ideas.md` already classifies an idea family as below-bar on the current
+  branch shape, treat that as a warning against another tiny variant.
+- Prefer structural changes, pass removal, or policy changes once repeated
+  micro-optimizations fail to clear the gate.
 
 ## Profiling
 
@@ -304,8 +342,22 @@ Use one row per experiment, including discards. Status values:
 - `keep` — change cleared all criteria
 - `discard` — change did not clear criteria
 - `crash` — build or test failure
+- `blocked` — infrastructure or unrelated repo problem prevented evaluation
+- `inconclusive` — result did not justify a keep/discard claim yet
 
-Include percentage changes vs baseline and which levels were checked.
+Include percentage changes vs baseline and which levels were checked. In
+the dedicated metadata columns, record:
+
+- `campaign_id` — stable id for the campaign, for example `dfast-20260327-a`
+- `target` — subsystem or cross-cutting area
+- `axis` — `ratio`, `compress`, `decompress`, or `balanced`
+- `levels` — exact benchmark levels, for example `3,4`
+- `rerun_status` — `not_needed`, `needed`, `confirmed`, `failed`
+- `evidence_status` — `aggregate_only`, `per_file_visible`, `per_file_confirmed`
+- `per_file_notes` — short summary of the strongest per-file winners/losers
+
+`campaigns.tsv` should contain one row per campaign with the baseline commit and
+high-level target metadata.
 
 **Always commit your work.** At the end of each research run — or periodically
 during long runs — commit `results.tsv` and `ideas.md` even if every experiment
@@ -338,4 +390,6 @@ A "hard blocker" means the build is broken and you cannot fix it, or the test
 suite has an unrelated failure you cannot work around. It does **not** mean
 "I tried a few things and they didn't clear the bar."
 
-Aim for at least 8-10 experiment iterations per research run.
+Aim for at least 8-10 experiment iterations per research run, but do not pay
+for that with repeated baseline rebuilds or stale micro-variants. A good run
+contains multiple experiments per campaign baseline.
