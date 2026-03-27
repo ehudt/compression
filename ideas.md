@@ -414,3 +414,21 @@ bug. Silesia now round-trips cleanly at all tested levels.
   alone still does not unlock a visible enough ratio win. Future high-level
   ratio work should look for better candidate generation or literal coding
   gains, not more local repcode cost-model tuning.
+- **BtLazy2 matched-run BT reinsertion is actively bad on this head.**
+  On `e603b9f`, reinserting accepted BtLazy2 match interiors back into the
+  binary tree with sparse `bt_find_insert()` calls cratered Silesia level-13
+  ratio from `2.900 -> 2.812` and compression from `17.6 -> 9.9 MB/s`, with
+  decompression also down about `11%`. This is worse than a simple speed/ratio
+  trade; the extra inserts appear to perturb the BT state enough to damage parse
+  quality. Future BtLazy2 work should avoid broad interior reinsertion unless it
+  can be done with a much cheaper, more tree-stable insertion path.
+- **BtLazy2 extra local probing remains below the bar.**
+  Also on `e603b9f`, extending BtLazy2 lookahead from 2 to 3 positions improved
+  Silesia ratio only from `2.900 -> 2.908` at level `13` and
+  `2.910 -> 2.919` at level `15`, while compression fell from `17.6 -> 14.9`
+  and `16.3 -> 13.9 MB/s`. A separate retry that raised BtLazy2 search depth by
+  one notch only reached `2.910` ratio at level `13`, left level `15` flat, and
+  still cost about `5.7%` compression at level `13`. Conclusion: the remaining
+  BtLazy2 ratio gap is not going to close from one more local probe or one more
+  search-depth notch; future wins likely need a different parser structure or a
+  coding-side improvement.
