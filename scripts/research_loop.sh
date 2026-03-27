@@ -152,6 +152,7 @@ reset_context() {
     am wait --state waiting_input,idle "${SESSION_ID}"
     if am send "${SESSION_ID}" '/new'; then
         sleep "${POST_AM_SLEEP_SECS}"
+        am wait --state waiting_input,idle "${SESSION_ID}"
         stop_spinner
         printf "  ${GREEN}✓${RESET} Context reset\n"
         return 0
@@ -234,6 +235,7 @@ for i in $(seq 1 "${N}"); do
     am wait --state waiting_input,idle "${SESSION_ID}"
     if am send "${SESSION_ID}" '$compression-autoresearch '; then # The space after the skill name is essential
         sleep "${POST_AM_SLEEP_SECS}"
+        am wait --state waiting_input,idle "${SESSION_ID}"
         stop_spinner
         printf "  ${GREEN}✓${RESET} Autoresearch complete  ${DIM}(%s)${RESET}\n" "$(iter_elapsed)"
         PASS=$((PASS + 1))
