@@ -675,3 +675,14 @@ bug. Silesia now round-trips cleanly at all tested levels.
   decompression also up slightly (`4937.9 -> 4960.1 MB/s`) and full tests
   passing. The remaining decoder headroom is still in copy/state-management
   paths rather than literal ownership tricks or metadata pre-passes.
+- **A conditional `read_bits()` reload fast path regressed badly against the current decoder head.**
+  On `ef316af`, making `BitReader::read_bits()` skip the `reload()` call until
+  `bits_consumed >= 8` looked like a plausible follow-up after the direct
+  window-load keep, but exact Silesia on levels `1/3/9` came back well below
+  the current head: decompression fell from `1763.8 -> 1653.8 MB/s` at level
+  `1`, `523.9 -> 463.7 MB/s` at level `3`, and `431.9 -> 386.2 MB/s` at level
+  `9`, with level `19` still running when the experiment was stopped. The
+  extra hot-path branch costs more than the avoided helper call once the
+  window load itself is already cheap; future `BitReader` work should avoid
+  per-read conditionals and look for larger sequence-decode or literal-copy
+  cuts instead.
