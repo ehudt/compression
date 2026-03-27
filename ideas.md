@@ -227,6 +227,14 @@ These patterns emerged from the results tracked in `results.tsv`:
   throughput by `1.8-5.2%` on levels `1/3/9`. Treat tiny literal-header
   cleanups as another weighted false-positive class on this branch unless a
   long-file benchmark shows visible per-file ratio movement.
+- **A simplified FSE-compressed Huffman header is not a safe shortcut.** On
+  `1c35506`, a first-pass encoder that tried to serialize Huffman weights with
+  a locally inverted FSE table and a simplified NCount writer cleared a small
+  unit round-trip and acceptance, but it panicked in release Silesia at level
+  `1` with an out-of-bounds state in `decode_fse_weights()`. Future work on
+  compressed Huffman weights should assume the full zstd format requirements
+  matter here: spec-accurate NCount encoding and the two-state weight stream,
+  not a single-state approximation.
 - **One more search-depth notch is below the gate for Optimal BT.** On
   `af0f8cb`, raising the binary-tree search depth by one notch for levels
   `16-19` moved Silesia ratio only from `3.101 -> 3.102`, `3.161 -> 3.162`,
