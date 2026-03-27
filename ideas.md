@@ -636,3 +636,20 @@ bug. Silesia now round-trips cleanly at all tested levels.
   The profile's realloc noise is real but too small and uneven to clear the
   subsystem gate; future DFast work should keep aiming at parser probe count or
   matched-run maintenance structure, not local buffer growth.
+- **Greedy chain-walk indexing cleanup is real but still below the gate.**
+  On `9c096c6`, a level-5 profile on `dickens` was dominated by slice indexing
+  inside `MatchFinder::find_match`, so a first retry removed bounds-checked
+  `Vec` indexing from the Greedy insert/chain-walk hot path. Exact Silesia kept
+  ratio flat at `2.588` and only improved compression from `63.1 -> 64.0 MB/s`
+  with decompression also essentially flat (`360.4 -> 361.7 MB/s`). The hotspot
+  is real, but the isolated indexing cleanup still landed inside noise on
+  Silesia; future level-5 work should look for larger parser or block-assembly
+  cuts than just unchecked access in the existing walk.
+- **A Greedy-specific fused matcher still stayed below the visibility bar.**
+  Also on `9c096c6`, replacing the generic level-5 `find_match()` call with a
+  Greedy-only fused insert-plus-chain-walk helper preserved the same parse but
+  still only reached `64.0 MB/s` versus the `63.1 MB/s` baseline, with flat
+  ratio and a small decompression slip (`360.4 -> 359.4 MB/s`). That makes two
+  misses in the same hot-loop-cleanup family. The next Greedy retry should
+  pivot away from compiler-shaping or helper-fusion changes and toward a larger
+  parser-quality or block-decision lever.
