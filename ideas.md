@@ -258,6 +258,20 @@ These patterns emerged from the results tracked in `results.tsv`:
   `3.2 MB/s`. The ratio change is too small to be visible on a per-file basis,
   so future high-level ratio work should target better parse scoring or literal
   coding completeness, not a uniform depth increase.
+- **A single cheap Greedy/Lazy rep0 probe is still below the bar.** On
+  `861a72f`, adding a zero-literal primary-repeat check to the Greedy/Lazy
+  parser path kept Silesia ratio flat at levels `5/6/8/12`, while compression
+  fell from `64.7 -> 61.0 MB/s` at level `5` and `64.6 -> 60.9 MB/s` at level
+  `6`. The missing Greedy/Lazy ratio is not unlocked by one extra current-pos
+  repcode hint; future repeat-aware work there needs a larger parse-quality win
+  than a selective rep0 retry.
+- **A wider Optimal BT DP horizon is a real ratio win.** Also on `861a72f`,
+  doubling `OPT_CHUNK_SIZE` from `256` to `512` improved Silesia ratio from
+  `3.133 -> 3.149` at level `16`, `3.194 -> 3.214` at level `18`, and
+  `3.201 -> 3.228` at level `19`, while compression stayed flat at
+  `5.2/4.0/3.2 MB/s` and a rerun reproduced the same ratios. That points to
+  DP horizon, not just search depth, as a live leverage point for the
+  high-level parser.
 - **Repeat offsets become viable when confined to the ratio-first levels.** On
   `056a9d6`, re-enabling repeat-offset encoding only for the `Optimal BT`
   family (`16-19`) improved Silesia ratio from `3.101 -> 3.133` at level `16`,

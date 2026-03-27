@@ -692,7 +692,6 @@ fn parse_ranges_greedy(
     let cfg = finder.cfg.clone();
     let mut pos = start;
     let mut lit_start = start;
-
     while pos < end {
         if pos + 4 > end {
             // Not enough bytes left in block for a match; emit tail as literals.
@@ -839,7 +838,6 @@ fn parse_ranges_lazy(
     let target_length = finder.cfg.target_length;
     let mut pos = start;
     let mut lit_start = start;
-
     while pos < end {
         if pos + 4 > end {
             break;
@@ -989,7 +987,7 @@ fn parse_ranges_bt_lazy2(
 }
 
 /// Chunk size for the optimal parser's DP window.
-const OPT_CHUNK_SIZE: usize = 256;
+const OPT_CHUNK_SIZE: usize = 512;
 
 /// Estimated bit cost of a match: FSE sequence overhead + offset bits + ML extra bits.
 #[inline]
