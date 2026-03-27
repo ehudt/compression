@@ -547,3 +547,22 @@ bug. Silesia now round-trips cleanly at all tested levels.
   high-level ratio is therefore not coming from arbitrary equal-length offset
   choice inside the current BT traversal; future work needs bigger leverage
   than local tie-breaking among already-found matches.
+- **Backward-extending emitted Optimal BT matches is not a free ratio win.** On
+  `e53390b`, letting the Optimal BT DP realization pull a chosen match backward
+  across the immediately preceding literal run only nudged Silesia ratio from
+  `3.149/3.214/3.228` to `3.152/3.218/3.233` on levels `16/18/19`, while level
+  `19` decompression fell sharply from `462.8 -> 442.3 MB/s`. Even when the
+  parser keeps the same candidate set, changing the realized match boundaries
+  can reshape the sequence stream enough to hurt decode speed without producing
+  a visible ratio gain. Future high-level work should be careful about
+  post-DP match surgery unless it clearly changes the parser's candidate
+  quality, not just literal/match boundaries.
+- **BtUltra2-only wider DP windows are still below the visibility threshold.**
+  Also on `e53390b`, widening only the `BtUltra2` DP chunk from `512` to `768`
+  positions improved level-19 Silesia from `3.228 -> 3.238` ratio with
+  `3.2 -> 3.3 MB/s` compression and `462.8 -> 463.9 MB/s` decompression, but a
+  `+0.010` aggregate ratio move on the only affected level is still too small
+  to count as visible. The kept global `512` window likely already captured
+  most of the practical DP-horizon win; future Optimal BT work should look for
+  better candidates per position rather than one more level-specific window
+  increase.
