@@ -258,6 +258,16 @@ These patterns emerged from the results tracked in `results.tsv`:
   `3.2 MB/s`. The ratio change is too small to be visible on a per-file basis,
   so future high-level ratio work should target better parse scoring or literal
   coding completeness, not a uniform depth increase.
+- **Returning the “best bit-gain” BT candidate is the wrong lever for Optimal BT here.**
+  On `c16ab89`, changing `bt_find_insert()` so `BtOpt/BtUltra/BtUltra2` kept
+  the candidate with the best estimated `8*len - match_cost_bits()` score
+  nudged Silesia ratio from `3.149 -> 3.157` at level `16`, `3.214 -> 3.226`
+  at level `18`, and `3.228 -> 3.240` at level `19`, but compression fell to
+  `4.9/3.7/3.0 MB/s` from the `5.2/4.0/3.2 MB/s` baseline. The BT traversal
+  cost did not change, so the lost throughput likely came from picking shorter,
+  cheaper matches that increased sequence count. Future Optimal BT work should
+  preserve the longest-match candidate set and improve parse choice with richer
+  DP inputs, not by replacing the BT’s primary candidate with a cost heuristic.
 - **A single cheap Greedy/Lazy rep0 probe is still below the bar.** On
   `861a72f`, adding a zero-literal primary-repeat check to the Greedy/Lazy
   parser path kept Silesia ratio flat at levels `5/6/8/12`, while compression
