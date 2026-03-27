@@ -28,6 +28,7 @@ shift
 
 SESSION_ID=""
 RESET_EVERY=0
+POST_AM_SLEEP_SECS=10
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -66,6 +67,7 @@ SPINNER_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 if [ -z "${SESSION_ID}" ]; then
     printf "${CYAN}Creating new agent session...${RESET}\n"
     SESSION_ID=$(am new ~/code/compression -t codex --yolo --print-session)
+    sleep "${POST_AM_SLEEP_SECS}"
     printf "${GREEN}Session: ${BOLD}${SESSION_ID}${RESET}\n"
 fi
 
@@ -149,6 +151,7 @@ reset_context() {
     start_spinner "Waiting for /new"
     am wait --state waiting_input,idle "${SESSION_ID}"
     if am send "${SESSION_ID}" '/new'; then
+        sleep "${POST_AM_SLEEP_SECS}"
         stop_spinner
         printf "  ${GREEN}✓${RESET} Context reset\n"
         return 0
@@ -230,6 +233,7 @@ for i in $(seq 1 "${N}"); do
     start_spinner "Running autoresearch"
     am wait --state waiting_input,idle "${SESSION_ID}"
     if am send "${SESSION_ID}" '$compression-autoresearch'; then
+        sleep "${POST_AM_SLEEP_SECS}"
         stop_spinner
         printf "  ${GREEN}✓${RESET} Autoresearch complete  ${DIM}(%s)${RESET}\n" "$(iter_elapsed)"
         PASS=$((PASS + 1))
