@@ -471,3 +471,11 @@ bug. Silesia now round-trips cleanly at all tested levels.
   improved slightly on compress (`1198.6 -> 1224.0 MB/s`) with flat ratio.
   The earlier all-level repeat-offset failure was mostly a fast-level budget
   problem; the mid-level Lazy family can absorb the format change.
+- **Direct-only implied-final Huffman headers are still below the bar on this head.**
+  On `043d757`, retrying direct Huffman header serialization with the final
+  implied weight omitted nudged Silesia ratio only from
+  `1.216/2.121/2.853/3.201` to `1.219/2.122/2.858/3.205` on levels `1/3/9/19`,
+  with compression effectively flat and decompression regressing by about
+  `0.5-4.1%`. That is still a sub-visible literal-header gain, not a real
+  ratio recovery. Future literal work should skip straight to full
+  FSE-compressed Huffman weights or a larger block/literal decision change.
