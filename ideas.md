@@ -529,3 +529,21 @@ bug. Silesia now round-trips cleanly at all tested levels.
   faster high-level measurement loop (for example a smaller-file or
   reduced-corpus confirmation step) before retrying larger DP horizons beyond
   the kept global `512`.
+- **Literal-aware pricing alone does not move Optimal BT parses.** On
+  `b68f308`, threading the pending literal-run length through the kept
+  512-position Optimal BT DP and charging approximate literal-length extra bits
+  left Silesia ratio pinned at `3.149/3.214/3.228` on levels `16/18/19`, with
+  compression also unchanged at `5.2/4.0/3.2 MB/s`. The current high-level
+  ratio gap is not just "the DP underprices long literal runs" when it still
+  sees only the same single best-offset candidate per position. Future
+  high-level parser work should focus on exposing better candidate sets or more
+  exact repcode-aware state, not just refining the cost model on the existing
+  candidate stream.
+- **Equal-length BT closer-offset tie-breaking is below the bar.** Also on
+  `b68f308`, making the BT finder prefer the smaller offset when two
+  candidates had the same length kept Silesia ratio flat at
+  `3.149/3.214/3.228` while slowing compression from `5.2 -> 5.1 MB/s`,
+  `4.0 -> 3.9 MB/s`, and `3.2 -> 3.1 MB/s` on levels `16/18/19`. The missing
+  high-level ratio is therefore not coming from arbitrary equal-length offset
+  choice inside the current BT traversal; future work needs bigger leverage
+  than local tie-breaking among already-found matches.
