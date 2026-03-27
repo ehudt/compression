@@ -235,6 +235,21 @@ These patterns emerged from the results tracked in `results.tsv`:
   compressed Huffman weights should assume the full zstd format requirements
   matter here: spec-accurate NCount encoding and the two-state weight stream,
   not a single-state approximation.
+- **A more reference-shaped compressed-weight retry still failed the real gate.**
+  On `570fb6a`, a second attempt that added local NCount emission plus paired
+  FSE encode/decode helpers still failed Silesia round-trip immediately on
+  `mozilla` with `invalid implied Huffman weight`. The lesson is stronger than
+  the original crash: this path needs exact parity with upstream
+  `HUF_compressWeights()` / `FSE_decompress_wksp()`, not a local approximation
+  that merely passes acceptance and small tests.
+- **Lazy Huffman decode-table caching is below the bar on current Silesia.**
+  Also on `570fb6a`, caching the per-table Huffman decode lookup so repeated
+  literal decodes could reuse it moved Silesia decompression from
+  `1690.2 -> 1662.2 MB/s` at level `1`, `458.8 -> 458.9 MB/s` at level `3`,
+  and `380.4 -> 380.5 MB/s` at level `9`, with compression also slightly down
+  at levels `3/9`. The decode-table rebuild cost is not the current
+  decompression bottleneck; future decoder work should stay focused on
+  back-reference replay and larger copy-path cuts.
 - **One more search-depth notch is below the gate for Optimal BT.** On
   `af0f8cb`, raising the binary-tree search depth by one notch for levels
   `16-19` moved Silesia ratio only from `3.101 -> 3.102`, `3.161 -> 3.162`,
