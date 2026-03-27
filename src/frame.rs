@@ -64,7 +64,12 @@ pub fn compress_with_config(
     let mut repeat_offsets = [1usize, 4, 8];
     let use_repeat_offsets = matches!(
         cfg.strategy,
-        Strategy::BtLazy2 | Strategy::BtOpt | Strategy::BtUltra | Strategy::BtUltra2
+        Strategy::Lazy
+            | Strategy::Lazy2
+            | Strategy::BtLazy2
+            | Strategy::BtOpt
+            | Strategy::BtUltra
+            | Strategy::BtUltra2
     );
 
     // Encode blocks

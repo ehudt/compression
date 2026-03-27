@@ -461,3 +461,13 @@ bug. Silesia now round-trips cleanly at all tested levels.
   Conclusion: repeated Huffman lookup-table rebuilds are not a dominant decoder
   cost on this head; future decompression work should keep targeting larger
   copy/state-management paths rather than local literals-table reuse.
+- **Lazy-family repeat offsets are cheap enough to keep when level-gated.**
+  On `ba0b5ed`, enabling the existing repeat-offset encoder path for
+  `Lazy`/`Lazy2` levels (`6-12`) improved Silesia ratio from
+  `2.588 -> 2.612` at level `6`, `2.793 -> 2.824` at level `8`, and
+  `2.957 -> 2.987` at level `12`, while leaving compression effectively flat
+  (`64.4 -> 64.1 MB/s`, `25.2 -> 25.2/24.9 MB/s` on rerun, `6.3 -> 6.3 MB/s`)
+  and only trimming decompression by about `0.5-0.7%`. Weighted sanity also
+  improved slightly on compress (`1198.6 -> 1224.0 MB/s`) with flat ratio.
+  The earlier all-level repeat-offset failure was mostly a fast-level budget
+  problem; the mid-level Lazy family can absorb the format change.
