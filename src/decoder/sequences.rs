@@ -354,7 +354,13 @@ fn copy_match(output: &mut Vec<u8>, offset: usize, match_length: usize) -> Resul
             .checked_sub(offset)
             .ok_or(ZstdError::CorruptData("history reference out of bounds"))?;
         let chunk_len = remaining.min(offset);
-        output.extend_from_within(src_start..src_start + chunk_len);
+        debug_assert!(current_len + chunk_len <= output.capacity());
+        unsafe {
+            let src = output.as_ptr().add(src_start);
+            let dst = output.as_mut_ptr().add(current_len);
+            std::ptr::copy_nonoverlapping(src, dst, chunk_len);
+            output.set_len(current_len + chunk_len);
+        }
         remaining -= chunk_len;
     }
     Ok(())

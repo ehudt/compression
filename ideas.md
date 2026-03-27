@@ -664,3 +664,14 @@ bug. Silesia now round-trips cleanly at all tested levels.
   decompress (`4937.9 -> 4953.7 MB/s`). The earlier decoder wins from reducing
   copy/replay work were not exhausted; bitstream window reload overhead was
   another material cross-cutting bottleneck on this head.
+- **Direct pointer replay on already-reserved output is another real decoder win.**
+  On `3f56ea9`, replacing `extend_from_within()` inside `copy_match()` with a
+  direct pointer copy into the `Vec`'s spare capacity preserved the existing
+  chunked-overlap replay logic while avoiding repeated reserve/bounds
+  machinery that still dominated the post-`BitReader` profile. Exact Silesia
+  kept ratio flat and improved decompression from `1629.5 -> 1763.8 MB/s` at
+  level `1`, `456.7 -> 523.9 MB/s` at level `3`, `378.6 -> 431.9 MB/s` at
+  level `9`, and `455.7 -> 525.4 MB/s` at level `19`, with weighted
+  decompression also up slightly (`4937.9 -> 4960.1 MB/s`) and full tests
+  passing. The remaining decoder headroom is still in copy/state-management
+  paths rather than literal ownership tricks or metadata pre-passes.
