@@ -334,14 +334,9 @@ impl<'a> BitReader<'a> {
 
         let (ptr, bit_container) = if n >= 8 {
             let ptr = n - 8;
-            let mut bytes = [0u8; 8];
-            bytes.copy_from_slice(&data[ptr..ptr + 8]);
-            (ptr, u64::from_le_bytes(bytes))
+            (ptr, load_bitreader_window(data, ptr))
         } else {
-            // Load n bytes into the LOW positions; high bytes are 0.
-            let mut bytes = [0u8; 8];
-            bytes[..n].copy_from_slice(data);
-            (0usize, u64::from_le_bytes(bytes))
+            (0usize, load_bitreader_window(data, 0))
         };
 
         // Sentinel = highest set bit.  Consume it and all zero bits above it.
@@ -366,11 +361,7 @@ impl<'a> BitReader<'a> {
         self.ptr -= go_back;
         self.bits_consumed -= (go_back * 8) as u32;
 
-        let n = self.data.len();
-        let avail = (n - self.ptr).min(8);
-        let mut bytes = [0u8; 8];
-        bytes[..avail].copy_from_slice(&self.data[self.ptr..self.ptr + avail]);
-        self.bit_container = u64::from_le_bytes(bytes);
+        self.bit_container = load_bitreader_window(self.data, self.ptr);
     }
 
     /// Read `n` bits from the HIGH end (MSB-first).
@@ -391,6 +382,20 @@ impl<'a> BitReader<'a> {
 
     pub fn is_empty(&self) -> bool {
         self.bits_consumed >= 64 && self.ptr == 0
+    }
+}
+
+#[inline]
+fn load_bitreader_window(data: &[u8], ptr: usize) -> u64 {
+    let avail = data.len() - ptr;
+    if avail >= 8 {
+        unsafe { u64::from_le(data.as_ptr().add(ptr).cast::<u64>().read_unaligned()) }
+    } else {
+        let mut bytes = [0u8; 8];
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr().add(ptr), bytes.as_mut_ptr(), avail);
+        }
+        u64::from_le_bytes(bytes)
     }
 }
 

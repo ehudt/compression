@@ -653,3 +653,14 @@ bug. Silesia now round-trips cleanly at all tested levels.
   misses in the same hot-loop-cleanup family. The next Greedy retry should
   pivot away from compiler-shaping or helper-fusion changes and toward a larger
   parser-quality or block-decision lever.
+- **BitReader reload is a real decompression lever when the slice-copy staging is removed.**
+  On `4fc4c6f`, a cross-cutting decoder pass replaced the `BitReader`'s
+  repeated 8-byte `copy_from_slice` staging with direct unaligned window loads
+  on the common path, keeping the short-tail fallback only for partial windows.
+  Exact Silesia kept ratio flat and improved decompression from
+  `1629.5 -> 1736.1 MB/s` at level `1`, `456.7 -> 522.1 MB/s` at level `3`,
+  `378.6 -> 428.3 MB/s` at level `9`, and `455.7 -> 520.2 MB/s` at level `19`,
+  with only small compression movement and weighted sanity also slightly up on
+  decompress (`4937.9 -> 4953.7 MB/s`). The earlier decoder wins from reducing
+  copy/replay work were not exhausted; bitstream window reload overhead was
+  another material cross-cutting bottleneck on this head.
