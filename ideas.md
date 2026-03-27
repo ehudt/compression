@@ -592,3 +592,22 @@ bug. Silesia now round-trips cleanly at all tested levels.
   most of the practical DP-horizon win; future Optimal BT work should look for
   better candidates per position rather than one more level-specific window
   increase.
+- **Lazy-family target-length-bounded chain walks are too blunt.** On
+  `586be84`, stopping `find_match()` as soon as Lazy/Lazy2 found any match at
+  or above the parser `target_length` accelerated Silesia compression from
+  `64.3 -> 79.6 MB/s` at level `6` and `20.3 -> 25.8 MB/s` at level `8`, but
+  it cratered level-6 ratio from `2.612 -> 2.390` and still nudged levels
+  `8/12` ratio down to `2.793/2.973`. The full chain walk is still finding
+  materially better matches than the first "good enough" candidate on this
+  branch; future Lazy-family speed work should cut reinsertion cost or miss
+  handling before it short-circuits match-quality search that aggressively.
+- **Removing the decoder's reserve pre-sum is below the real-world bar.** Also
+  on `586be84`, threading total decoded match bytes out of sequence decode to
+  avoid `execute_sequences()` summing match lengths in a second pass looked
+  attractive in a CPU profile (~10% of samples on `dickens`/level 6), but
+  exact Silesia decompression still regressed from `1683.7 -> 1659.6 MB/s` at
+  level `1`, `456.9 -> 450.4 MB/s` at level `3`, and `380.4 -> 373.6 MB/s` at
+  level `9`, with ratio flat and compression unchanged. The extra metadata and
+  plumbing cost more than the removed iterator walk here; future decoder work
+  should stay focused on bitreader/state-transition overhead or larger copy-path
+  cuts, not bookkeeping that only moves one pre-pass.
