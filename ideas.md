@@ -373,3 +373,13 @@ cargo run --release --example silesia_bench -- --download --implementation both
 regression"). The `dickens` file at level 1 was triggering
 `Huffman table error: max_bits out of range` due to a literal/Huffman header
 bug. Silesia now round-trips cleanly at all tested levels.
+
+- **Repeat-offset-aware parser scoring still does not clear the cross-cutting gate by itself.**
+  On `5288486`, retrying repeat offsets with both cross-block repcode emission
+  and parser-side repeat-aware offset pricing nudged Silesia ratio from
+  `1.216 -> 1.218` at level `1`, `2.121 -> 2.134` at level `3`, and
+  `2.822 -> 2.854` at level `9`, but compression slipped from
+  `751.8 -> 725.9 MB/s`, `204.2 -> 195.6 MB/s`, and `20.8 -> 20.5 MB/s`
+  respectively, with decompression also down about `1-2%`. The extra ratio is
+  real but still too small for the speed bill; future repeat-offset work needs
+  a larger parse-quality change than simply repricing near-tie matches.
