@@ -252,6 +252,15 @@ These patterns emerged from the results tracked in `results.tsv`:
   family can. Keep the encoder-side repeat-offset state local until the block
   is actually emitted as compressed, or raw/RLE fallbacks will corrupt later
   blocks.
+- **BtLazy2 can also afford repeat offsets, but only as an encoder-side gate.**
+  On `acdd970`, widening the existing repeat-offset encoder gate from
+  `Optimal BT` only to `BtLazy2 + Optimal BT` improved Silesia ratio from
+  `2.875 -> 2.900` at level `13` and `2.885 -> 2.910` at level `15`, while
+  keeping compression effectively flat (`17.5 -> 17.5/17.6 MB/s`,
+  `16.3 -> 16.3 MB/s`) and only trimming decompression by about `0.4-0.7%` on
+  confirmation. This is within the subsystem budget and suggests the earlier
+  all-level repeat-offset failures were mostly caused by lower families rather
+  than by `BtLazy2` itself.
 - **DFast still responds to combined table-access cleanup, but not to stale short-table shortcuts.**
   On `93e9467`, replacing DFast's slice-to-array hash inputs with direct
   word loads, reusing the loaded word for both hash selection and candidate
