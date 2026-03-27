@@ -393,3 +393,15 @@ bug. Silesia now round-trips cleanly at all tested levels.
   respectively, with decompression also down about `1-2%`. The extra ratio is
   real but still too small for the speed bill; future repeat-offset work needs
   a larger parse-quality change than simply repricing near-tie matches.
+- **Even level-gated Optimal BT repcode pricing is still below the bar on this head.**
+  On `d14e5a1`, threading the current repeat-offset state into the `Optimal BT`
+  chunk DP and pricing repcode-eligible matches along the cheapest path nudged
+  Silesia ratio only from `3.133 -> 3.136` at level `16`, `3.194 -> 3.199` at
+  level `18`, and `3.201 -> 3.207` at level `19`, while compression slipped
+  from `5.2 -> 5.1 MB/s`, `4.0 -> 3.9 MB/s`, and `3.2 -> 3.1 MB/s` and
+  decompression regressed by about `0.4%` at level `16` and `4.8%` at levels
+  `18/19`. The repeat-offset feature already harvested the easy gain when the
+  encoder started emitting repcodes on levels `16-19`; parser-side repricing
+  alone still does not unlock a visible enough ratio win. Future high-level
+  ratio work should look for better candidate generation or literal coding
+  gains, not more local repcode cost-model tuning.
