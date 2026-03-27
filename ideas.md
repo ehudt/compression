@@ -432,6 +432,16 @@ bug. Silesia now round-trips cleanly at all tested levels.
   BtLazy2 ratio gap is not going to close from one more local probe or one more
   search-depth notch; future wins likely need a different parser structure or a
   coding-side improvement.
+- **BtLazy2 literal-aware local rescoring made the parse strictly worse.**
+  On `da39c39`, replacing the simple BtLazy2 `prefer_match()` heuristic with a
+  literal-bit-aware local cost estimate and selectively enabling a third
+  lookahead for weak initial matches immediately regressed Silesia level `13`
+  from `2.900 -> 2.864` ratio, `17.5 -> 14.0 MB/s` compression, and
+  `440.1 -> 406.0 MB/s` decompression before level `15` even ran. The added
+  local cost model over-penalized skipped literals and disrupted the parse more
+  than the extra probe helped. Future BtLazy2 work should look for better
+  candidate generation inside `bt_find_insert()` or a coding-side ratio gain,
+  not more aggressive local match rescoring.
 - **Persisting Huffman decode tables inside the table object regressed the overall pipeline.**
   On `7de3308`, storing the per-table Huffman decode lookup inside
   `HuffmanTable` looked like a plausible decompression win, but the weighted
