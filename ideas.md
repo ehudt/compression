@@ -697,3 +697,14 @@ bug. Silesia now round-trips cleanly at all tested levels.
   literal-copy overhead is too small once reserve sizing and match replay are
   already cheap; future decoder work should look for larger sequence-decode or
   block-level copy cuts rather than another `extend_from_slice()` rewrite.
+- **Deferring `set_len()` inside chunked match replay regressed instead of helping.**
+  On `bd37e78`, a follow-up to the kept pointer-based match replay tried to
+  remove the per-chunk `Vec::set_len()` updates and advance the output length
+  only once after the whole match had been copied. Exact Silesia on levels
+  `1/3/9` came back consistently worse than the current head:
+  decompression fell from `1763.8 -> 1743.7 MB/s` at level `1`,
+  `523.9 -> 512.8 MB/s` at level `3`, and `431.9 -> 420.1 MB/s` at level `9`,
+  with level `19` still pending when the run was stopped. The current replay
+  loop benefits from publishing each copied chunk immediately so later overlap
+  iterations can stay aligned with the `Vec` length; future replay work should
+  pivot away from `set_len` reshaping and toward a different structural cut.
