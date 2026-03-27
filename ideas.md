@@ -432,3 +432,22 @@ bug. Silesia now round-trips cleanly at all tested levels.
   BtLazy2 ratio gap is not going to close from one more local probe or one more
   search-depth notch; future wins likely need a different parser structure or a
   coding-side improvement.
+- **Persisting Huffman decode tables inside the table object regressed the overall pipeline.**
+  On `7de3308`, storing the per-table Huffman decode lookup inside
+  `HuffmanTable` looked like a plausible decompression win, but the weighted
+  benchmark moved from `1239.9 -> 1182.3 MB/s` on compress and
+  `4941.0 -> 4904.3 MB/s` on decompress with flat ratio. The likely issue is
+  that every table construction/copy now drags a heap allocation and a larger
+  object through the literals path, overwhelming the saved rebuild. Future
+  Huffman decode caching should keep the hot decode structure out of the
+  frequently-built table object, or reuse it at a higher level without adding
+  per-table ownership and cloning cost.
+- **Per-literals-section Huffman decode-table reuse is still below the gate.**
+  Also on `7de3308`, reusing one Huffman decode lookup across an entire
+  literals section and across all four Huffman streams avoided the larger
+  `HuffmanTable` footprint, but the weighted benchmark still moved only to
+  `4947.9 MB/s` on decompress (`+0.14%`) while weighted compress slipped from
+  `1239.9 -> 1193.5 MB/s`. That is not a visible cross-cutting improvement.
+  Conclusion: repeated Huffman lookup-table rebuilds are not a dominant decoder
+  cost on this head; future decompression work should keep targeting larger
+  copy/state-management paths rather than local literals-table reuse.
