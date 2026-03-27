@@ -718,3 +718,14 @@ bug. Silesia now round-trips cleanly at all tested levels.
   The current mid-level parser is still relying on those reinsertion points to
   recover later matches, so future Lazy-family work should target miss
   handling or cheaper search quality, not sparser matched-run table seeding.
+- **Lazy `insert()` dominates the profile, but helper-fusion cleanup is still below the gate.**
+  On `d57a7f8`, a fresh level-6 `dickens` CPU profile put `MatchFinder::insert`
+  at about `82.6%` of leaf samples, so a follow-up folded the current-position
+  hash/load directly into `find_match()` to avoid a separate `insert()` helper
+  round-trip on every probe. Exact Silesia stayed effectively flat:
+  compression moved from `62.2 -> 62.6 MB/s` at level `6` and
+  `23.8 -> 23.9 MB/s` at level `8`, with ratio unchanged and decompression
+  slightly down. The hotspot is real, but the isolated call-shaping cleanup is
+  still too small to survive the real-corpus bar; future Lazy-family speed
+  work should look for fewer probes or fewer insertions, not just a tighter
+  implementation of the same per-position work.
