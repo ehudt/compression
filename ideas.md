@@ -686,3 +686,14 @@ bug. Silesia now round-trips cleanly at all tested levels.
   window load itself is already cheap; future `BitReader` work should avoid
   per-read conditionals and look for larger sequence-decode or literal-copy
   cuts instead.
+- **Direct pointer copying for literal replay is below the bar after the kept decoder wins.**
+  On `454cdde`, replacing `extend_from_slice()` for literal runs inside
+  `execute_sequences()` with direct pointer writes into the already-reserved
+  output buffer preserved behavior and matched the kept match-replay strategy,
+  but exact Silesia stayed effectively flat against the current head:
+  decompression moved from `1763.8 -> 1755.2 MB/s` at level `1`,
+  `523.9 -> 522.2 MB/s` at level `3`, and `431.9 -> 433.5 MB/s` at level `9`,
+  with level `19` still pending when the run was stopped. The remaining
+  literal-copy overhead is too small once reserve sizing and match replay are
+  already cheap; future decoder work should look for larger sequence-decode or
+  block-level copy cuts rather than another `extend_from_slice()` rewrite.
