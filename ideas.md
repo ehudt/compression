@@ -242,6 +242,16 @@ These patterns emerged from the results tracked in `results.tsv`:
   `3.2 MB/s`. The ratio change is too small to be visible on a per-file basis,
   so future high-level ratio work should target better parse scoring or literal
   coding completeness, not a uniform depth increase.
+- **Repeat offsets become viable when confined to the ratio-first levels.** On
+  `056a9d6`, re-enabling repeat-offset encoding only for the `Optimal BT`
+  family (`16-19`) improved Silesia ratio from `3.101 -> 3.133` at level `16`,
+  `3.161 -> 3.194` at level `18`, and `3.167 -> 3.201` at level `19`, while
+  keeping compression flat-to-slightly-better (`5.1 -> 5.2`, `3.9 -> 4.0`,
+  `3.1 -> 3.2 MB/s`). The earlier all-level repeat-offset attempts failed
+  because the fast and mid levels could not afford the trade; the ratio-first
+  family can. Keep the encoder-side repeat-offset state local until the block
+  is actually emitted as compressed, or raw/RLE fallbacks will corrupt later
+  blocks.
 - **DFast still responds to combined table-access cleanup, but not to stale short-table shortcuts.**
   On `93e9467`, replacing DFast's slice-to-array hash inputs with direct
   word loads, reusing the loaded word for both hash selection and candidate

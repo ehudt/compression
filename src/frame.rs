@@ -11,7 +11,7 @@
 use crate::decoder::decode_block;
 use crate::encoder::MatchConfig;
 use crate::encoder::block::encode_block;
-use crate::encoder::lz77::MatchFinder;
+use crate::encoder::lz77::{MatchFinder, Strategy};
 use crate::error::{Result, ZstdError};
 use crate::xxhash::xxhash32;
 
@@ -61,6 +61,11 @@ pub fn compress_with_config(
 
     // Single MatchFinder for the whole frame — persists cross-block history.
     let mut finder = MatchFinder::new(cfg);
+    let mut repeat_offsets = [1usize, 4, 8];
+    let use_repeat_offsets = matches!(
+        cfg.strategy,
+        Strategy::BtOpt | Strategy::BtUltra | Strategy::BtUltra2
+    );
 
     // Encode blocks
     let mut pos = 0usize;
@@ -72,7 +77,14 @@ pub fn compress_with_config(
         let repeated_byte = repeated_byte(block_data);
         let compressed =
             if repeated_byte.is_none() && should_attempt_compressed_block(block_data, cfg) {
-                Some(encode_block(input, pos, block_end, &mut finder)?)
+                Some(encode_block(
+                    input,
+                    pos,
+                    block_end,
+                    &mut finder,
+                    repeat_offsets,
+                    use_repeat_offsets,
+                )?)
             } else {
                 None
             };
@@ -81,7 +93,7 @@ pub fn compress_with_config(
         let use_compressed = !use_rle
             && compressed
                 .as_ref()
-                .is_some_and(|payload| payload.len() < block_data.len());
+                .is_some_and(|(payload, _)| payload.len() < block_data.len());
         let block_type = if use_rle {
             1
         } else if use_compressed {
@@ -92,7 +104,7 @@ pub fn compress_with_config(
         let block_size = if use_rle {
             block_data.len()
         } else if use_compressed {
-            compressed.as_ref().unwrap().len()
+            compressed.as_ref().unwrap().0.len()
         } else {
             block_data.len()
         };
@@ -104,7 +116,9 @@ pub fn compress_with_config(
         if let Some(byte) = repeated_byte {
             out.push(byte);
         } else if use_compressed {
-            out.extend_from_slice(compressed.as_ref().unwrap());
+            let (payload, next_repeat_offsets) = compressed.as_ref().unwrap();
+            out.extend_from_slice(payload);
+            repeat_offsets = *next_repeat_offsets;
         } else {
             out.extend_from_slice(block_data);
         }

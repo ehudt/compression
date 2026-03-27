@@ -44,6 +44,8 @@ struct SequenceCollector<'a> {
     literals: Vec<u8>,
     sequences: Vec<EncodedSequence>,
     pending_lit_len: usize,
+    repeat_offsets: [usize; 3],
+    use_repeat_offsets: bool,
     invalid: bool,
 }
 
@@ -69,8 +71,9 @@ impl ParseSink for SequenceCollector<'_> {
             self.invalid = true;
             return;
         };
-        // Encode all offsets using the non-repeat path: raw_offset = offset + 3.
-        let Some((of_code, of_extra)) = offset_code(offset) else {
+        let Some((of_code, of_extra)) =
+            offset_code(offset, lit_len, &mut self.repeat_offsets, self.use_repeat_offsets)
+        else {
             self.invalid = true;
             return;
         };
@@ -98,14 +101,17 @@ pub fn encode_block(
     start: usize,
     end: usize,
     finder: &mut MatchFinder,
-) -> Result<Vec<u8>> {
+    repeat_offsets: [usize; 3],
+    use_repeat_offsets: bool,
+) -> Result<(Vec<u8>, [usize; 3])> {
     if start == end {
         // One-byte "0 raw literals" + one-byte "0 sequences"
-        return Ok(vec![0x00, 0x00]);
+        return Ok((vec![0x00, 0x00], repeat_offsets));
     }
 
     let block_data = &full_data[start..end];
-    let (mut literals, mut sequences) = collect_sequences(full_data, start, end, finder);
+    let (mut literals, mut sequences, repeat_offsets) =
+        collect_sequences(full_data, start, end, finder, repeat_offsets, use_repeat_offsets);
     let mut seq_section = encode_sequences(&sequences);
     if should_validate_sequences() && !sequences.is_empty() {
         // Prior history: up to one window worth of bytes preceding this block.
@@ -120,7 +126,7 @@ pub fn encode_block(
 
     let mut out = encode_literals(&literals)?;
     out.extend_from_slice(&seq_section);
-    Ok(out)
+    Ok((out, repeat_offsets))
 }
 
 #[inline]
@@ -156,21 +162,25 @@ fn collect_sequences(
     start: usize,
     end: usize,
     finder: &mut MatchFinder,
-) -> (Vec<u8>, Vec<EncodedSequence>) {
+    repeat_offsets: [usize; 3],
+    use_repeat_offsets: bool,
+) -> (Vec<u8>, Vec<EncodedSequence>, [usize; 3]) {
     let block_len = end - start;
     let mut collector = SequenceCollector {
         data: full_data,
         literals: Vec::with_capacity(block_len / 4),
         sequences: Vec::with_capacity(block_len / 32),
         pending_lit_len: 0,
+        repeat_offsets,
+        use_repeat_offsets,
         invalid: false,
     };
     parse_ranges(full_data, start, end, finder, &mut collector);
 
     if collector.invalid {
-        (full_data[start..end].to_vec(), Vec::new())
+        (full_data[start..end].to_vec(), Vec::new(), repeat_offsets)
     } else {
-        (collector.literals, collector.sequences)
+        (collector.literals, collector.sequences, collector.repeat_offsets)
     }
 }
 
@@ -190,18 +200,70 @@ fn match_length_code(value: usize) -> Option<(usize, u32)> {
     )
 }
 
-fn offset_code(offset: usize) -> Option<(usize, u32)> {
+fn offset_code(
+    offset: usize,
+    lit_len: usize,
+    repeat_offsets: &mut [usize; 3],
+    use_repeat_offsets: bool,
+) -> Option<(usize, u32)> {
     if offset == 0 {
         return None;
     }
-    // zstd non-repeat offset: raw_offset = offset + 3
-    // of_code = floor(log2(raw_offset)), of_extra = raw_offset - (1 << of_code)
-    let raw = offset + 3;
+    let raw = if use_repeat_offsets {
+        repeat_offset_raw_value(offset, lit_len, repeat_offsets).unwrap_or(offset + 3)
+    } else {
+        offset + 3
+    };
     let code = usize::BITS as usize - 1 - raw.leading_zeros() as usize;
     if code >= OFFSET_DEFAULT_NORM.len() {
         return None; // offset too large for predefined table
     }
     Some((code, (raw - (1 << code)) as u32))
+}
+
+fn repeat_offset_raw_value(
+    offset: usize,
+    lit_len: usize,
+    repeat_offsets: &mut [usize; 3],
+) -> Option<usize> {
+    if lit_len == 0 {
+        if offset + 1 == repeat_offsets[0] {
+            let repeated = repeat_offsets[0];
+            repeat_offsets[2] = repeat_offsets[1];
+            repeat_offsets[1] = repeat_offsets[0];
+            repeat_offsets[0] = repeated - 1;
+            return Some(3);
+        }
+        if offset == repeat_offsets[1] {
+            let repeated = repeat_offsets[1];
+            repeat_offsets[1] = repeat_offsets[0];
+            repeat_offsets[0] = repeated;
+            return Some(1);
+        }
+        if offset == repeat_offsets[2] {
+            let repeated = repeat_offsets[2];
+            repeat_offsets[2] = repeat_offsets[1];
+            repeat_offsets[1] = repeat_offsets[0];
+            repeat_offsets[0] = repeated;
+            return Some(2);
+        }
+    } else {
+        for rep_idx in 0..3 {
+            if offset == repeat_offsets[rep_idx] {
+                let repeated = repeat_offsets[rep_idx];
+                for i in (1..=rep_idx).rev() {
+                    repeat_offsets[i] = repeat_offsets[i - 1];
+                }
+                repeat_offsets[0] = repeated;
+                return Some(rep_idx + 1);
+            }
+        }
+    }
+
+    repeat_offsets[2] = repeat_offsets[1];
+    repeat_offsets[1] = repeat_offsets[0];
+    repeat_offsets[0] = offset;
+    None
 }
 
 fn lookup_length_code(value: usize, table: &[(u8, u32)]) -> Option<(usize, u32)> {
