@@ -232,7 +232,7 @@ for i in $(seq 1 "${N}"); do
 
     start_spinner "Running autoresearch"
     am wait --state waiting_input,idle "${SESSION_ID}"
-    if am send "${SESSION_ID}" '$compression-autoresearch'; then
+    if am send "${SESSION_ID}" '$compression-autoresearch '; then # The space after the skill name is essential
         sleep "${POST_AM_SLEEP_SECS}"
         stop_spinner
         printf "  ${GREEN}✓${RESET} Autoresearch complete  ${DIM}(%s)${RESET}\n" "$(iter_elapsed)"
