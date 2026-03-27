@@ -258,6 +258,22 @@ These patterns emerged from the results tracked in `results.tsv`:
   `3.2 MB/s`. The ratio change is too small to be visible on a per-file basis,
   so future high-level ratio work should target better parse scoring or literal
   coding completeness, not a uniform depth increase.
+- **Borrowed raw/RLE literals are not a free decompression win here.** On
+  `294aa8e`, keeping raw and RLE literal sections in a borrowed/compact form
+  all the way into sequence execution looked like an allocation cut, but
+  Silesia decompression regressed immediately from `1680.5 -> 1648.2 MB/s` at
+  level `1` and `454.1 -> 436.2 MB/s` at level `3` before the run was
+  stopped. The extra per-range dispatch in sequence execution cost more than
+  the saved literal materialization on this branch; future decoder work should
+  stay focused on copy/replay hot paths, not literal-source abstraction.
+- **Lazy `target_length` is a parse-policy knob, not a safe hash-chain cutoff.**
+  Also on `294aa8e`, stopping `find_match()` as soon as Lazy/Lazy2 found any
+  match at or above `target_length` spiked level-6 compression from
+  `63.3 -> 90.9 MB/s`, but it collapsed ratio from `2.612 -> 2.461` and cut
+  decompression from `359.4 -> 329.0 MB/s`. The current lazy-family ratios
+  still depend on continuing the local chain walk even after the parser would
+  later "early accept" the final winner; future speed work needs a more
+  selective pruning rule than treating `target_length` as a hard search stop.
 - **Returning the “best bit-gain” BT candidate is the wrong lever for Optimal BT here.**
   On `c16ab89`, changing `bt_find_insert()` so `BtOpt/BtUltra/BtUltra2` kept
   the candidate with the best estimated `8*len - match_cost_bits()` score
