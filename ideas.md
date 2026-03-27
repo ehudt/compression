@@ -708,3 +708,13 @@ bug. Silesia now round-trips cleanly at all tested levels.
   loop benefits from publishing each copied chunk immediately so later overlap
   iterations can stay aligned with the `Vec` length; future replay work should
   pivot away from `set_len` reshaping and toward a different structural cut.
+- **Lazy/Lazy2 matched-run reinsertion is already close to its ratio floor on this head.**
+  On `b4b9820`, shortening the dense prefix/suffix in `skip()` from `8` bytes
+  to `4` and widening the mid-run reinsertion step for `Lazy`/`Lazy2` looked
+  like a plausible way to recover parser speed without touching the chain-walk
+  itself, but exact Silesia regressed immediately: ratio slipped from
+  `2.612 -> 2.610` at level `6` and `2.824 -> 2.821` at level `8`, while
+  compression also fell from `62.2 -> 61.9 MB/s` and `23.8 -> 23.5 MB/s`.
+  The current mid-level parser is still relying on those reinsertion points to
+  recover later matches, so future Lazy-family work should target miss
+  handling or cheaper search quality, not sparser matched-run table seeding.
