@@ -486,6 +486,15 @@ bug. Silesia now round-trips cleanly at all tested levels.
   improved slightly on compress (`1198.6 -> 1224.0 MB/s`) with flat ratio.
   The earlier all-level repeat-offset failure was mostly a fast-level budget
   problem; the mid-level Lazy family can absorb the format change.
+- **Level 5 still cannot buy ratio with repeat offsets alone.** On `db7612c`,
+  enabling repeat-offset emission for `Greedy` improved Silesia level-5 ratio
+  from `2.588 -> 2.612`, but compression fell from `64.6 -> 63.5 MB/s` and
+  decompression slipped from `361.0 -> 357.6 MB/s`. A follow-up that simply
+  retuned level `5` onto the level-6 `Lazy` parameters reproduced the same
+  `2.612` ratio while still landing at `64.2 MB/s` and `63.9 MB/s` on rerun.
+  Conclusion: the remaining level-5 gap is not just "missing repcodes" or
+  "wrong family label"; Greedy needs a parser-quality or block-assembly change
+  that improves ratio without paying even a 1% speed tax.
 - **Direct-only implied-final Huffman headers are still below the bar on this head.**
   On `043d757`, retrying direct Huffman header serialization with the final
   implied weight omitted nudged Silesia ratio only from
